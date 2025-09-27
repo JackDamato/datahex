@@ -79,13 +79,16 @@ export function initializeDatabase(): Promise<void> {
           }
           console.log('✅ Datasets table created/verified');
           
-          // Create files table (optional, for future use)
+          // Create files table with type enum
           database.run(`
             CREATE TABLE IF NOT EXISTS files (
               fileId TEXT PRIMARY KEY,
               projectId TEXT NOT NULL,
-              filename TEXT NOT NULL,
+              name TEXT NOT NULL,
+              type TEXT CHECK(type IN ('dataset', 'chart', 'model', 'image')) NOT NULL,
+              size INTEGER DEFAULT 0,
               path TEXT NOT NULL,
+              metadata TEXT,
               createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
               FOREIGN KEY (projectId) REFERENCES projects (projectId)
             )
@@ -249,6 +252,68 @@ export async function getDatasetsByUserId(userId: string): Promise<any[]> {
   `, [userId]);
 }
 
+// File management functions
+export async function createFile(projectId: string, name: string, type: 'dataset' | 'chart' | 'model' | 'image', size: number, path: string, metadata?: any): Promise<string> {
+  const fileId = uuidv4();
+  await insertDatabase(
+    'INSERT INTO files (fileId, projectId, name, type, size, path, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [fileId, projectId, name, type, size, path, metadata ? JSON.stringify(metadata) : null]
+  );
+  return fileId;
+}
+
+export async function getFilesByProjectId(projectId: string): Promise<any[]> {
+  return await queryDatabase(
+    'SELECT * FROM files WHERE projectId = ? ORDER BY createdAt DESC',
+    [projectId]
+  );
+}
+
+export async function getFileById(fileId: string): Promise<any> {
+  const files = await queryDatabase(
+    'SELECT * FROM files WHERE fileId = ?',
+    [fileId]
+  );
+  return files[0] || null;
+}
+
+export async function deleteFile(fileId: string): Promise<void> {
+  await deleteDatabase(
+    'DELETE FROM files WHERE fileId = ?',
+    [fileId]
+  );
+}
+
+export async function updateFile(fileId: string, updates: { name?: string; type?: string; size?: number; metadata?: any }): Promise<void> {
+  const setClause = [];
+  const params = [];
+  
+  if (updates.name !== undefined) {
+    setClause.push('name = ?');
+    params.push(updates.name);
+  }
+  if (updates.type !== undefined) {
+    setClause.push('type = ?');
+    params.push(updates.type);
+  }
+  if (updates.size !== undefined) {
+    setClause.push('size = ?');
+    params.push(updates.size);
+  }
+  if (updates.metadata !== undefined) {
+    setClause.push('metadata = ?');
+    params.push(JSON.stringify(updates.metadata));
+  }
+  
+  if (setClause.length === 0) return;
+  
+  params.push(fileId);
+  await updateDatabase(
+    `UPDATE files SET ${setClause.join(', ')} WHERE fileId = ?`,
+    params
+  );
+}
+
 // Get user profile with projects and datasets
 export async function getUserProfile(userId: string): Promise<any> {
   const user = await getUserById(userId);
@@ -294,10 +359,8 @@ export async function seedDatabase(): Promise<void> {
       return;
     }
 
-    const bcrypt = require('bcrypt');
-    
-    // Create test user
-    const testPasswordHash = await bcrypt.hash('testpassword', 10);
+    // Create test user with simple hash (matching auth service)
+    const testPasswordHash = Buffer.from('testpassword').toString('base64');
     const userId = await createUser('testuser', testPasswordHash);
     
     // Create default project for test user
@@ -305,6 +368,9 @@ export async function seedDatabase(): Promise<void> {
     
     // Create test dataset
     await createDataset(projectId, 'sample-data.csv', './uploads/sample-data.csv', 100, 5);
+    
+    // Also create a file record for the new file system API
+    await createFile(projectId, 'sample-data.csv', 'dataset', 1024000, './uploads/sample-data.csv');
     
     console.log('✅ Database seeded with test data');
   } catch (error) {
