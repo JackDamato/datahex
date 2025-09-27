@@ -2,7 +2,7 @@
 
 ## Overview
 
-The frontend is a React 18 + Vite + TypeScript application with CedarOS integration, designed as a data science copilot interface. It features a unique three-panel layout optimized for data science workflows.
+The frontend is a React 18 + Vite + TypeScript application with CedarOS integration, designed as a data science copilot interface. It features a unique three-panel layout optimized for data science workflows, complete with user authentication, project management, and dataset handling capabilities.
 
 ## Technology Stack
 
@@ -10,7 +10,9 @@ The frontend is a React 18 + Vite + TypeScript application with CedarOS integrat
 - **Build Tool**: Vite with Rolldown (experimental)
 - **UI Integration**: CedarOS (stub implementation)
 - **Styling**: CSS with custom design system
-- **State Management**: React hooks with custom hooks
+- **State Management**: React Context API with custom hooks
+- **Authentication**: JWT-based with localStorage
+- **API Communication**: Fetch API with error handling
 - **Development**: Hot Module Replacement (HMR)
 
 ## Project Structure
@@ -19,14 +21,25 @@ The frontend is a React 18 + Vite + TypeScript application with CedarOS integrat
 frontend/
 ├── src/
 │   ├── components/           # React components
-│   │   ├── ChatPanel.tsx     # Conversational interface
-│   │   ├── AgentBrowser.tsx  # AI agent selection
-│   │   ├── Canvas.tsx        # Main workspace area
-│   │   ├── LiveSummaryStats.tsx # Stats + File browser
+│   │   ├── Auth/             # Authentication components
+│   │   │   ├── LoginPage.tsx     # User login form
+│   │   │   ├── SignupPage.tsx    # User registration form
+│   │   │   └── ProfilePage.tsx   # User profile & projects
+│   │   ├── Workspace/        # Project workspace components
+│   │   │   ├── ProjectWorkspace.tsx # Main project interface
+│   │   │   ├── Canvas.tsx         # Data science workspace
+│   │   │   ├── ChatPanel.tsx      # Conversational interface
+│   │   │   ├── AgentBrowser.tsx   # AI agent selection
+│   │   │   └── LiveSummaryStats.tsx # Stats + File browser
 │   │   └── README.md         # Component documentation
+│   ├── contexts/             # React Context providers
+│   │   └── AuthContext.tsx   # Authentication state & API
 │   ├── hooks/                # Custom React hooks
 │   │   └── useProjectFiles.ts # File management hook
+│   ├── utils/                # Utility functions
+│   │   └── urlUtils.ts       # URL routing utilities
 │   ├── assets/               # Static assets
+│   │   └── logo.svg          # DataHex logo
 │   ├── App.tsx               # Main application component
 │   ├── App.css               # Global styles
 │   ├── index.css             # Base styles
@@ -44,17 +57,132 @@ frontend/
 
 ### Main Layout (App.tsx)
 
-The application uses a three-panel layout wrapped in a CedarOS provider:
+The application uses a state-based navigation system with authentication:
 
 ```tsx
-<CedarCopilot provider="mastra" config={...}>
-  <div className="app">
-    <div className="left-sidebar">     // Chat + Agents
-    <div className="center-workspace"> // Main canvas
-    <div className="right-sidebar">    // Stats + Files
-  </div>
-</CedarCopilot>
+<AuthProvider>
+  <CedarCopilot provider="mastra" config={...}>
+    <AppContent /> // Handles routing and authentication
+  </CedarCopilot>
+</AuthProvider>
 ```
+
+**Navigation States:**
+- `login` - User login page
+- `signup` - User registration page  
+- `profile` - User profile with projects list
+- `project` - Project workspace (when project selected)
+
+## Authentication System
+
+### AuthContext (contexts/AuthContext.tsx)
+
+Centralized authentication state management using React Context API:
+
+**State Interface:**
+```typescript
+interface AuthState {
+  isAuthenticated: boolean
+  user: { userId: string; username: string } | null
+  token: string | null
+  loading: boolean
+}
+```
+
+**Key Features:**
+- **JWT Token Management**: Automatic token storage in localStorage
+- **Persistent Sessions**: Auto-login on app reload
+- **API Service**: Centralized backend communication
+- **Error Handling**: Comprehensive error management
+
+**API Methods:**
+- `login(username, password)` - User authentication
+- `signup(username, password)` - User registration
+- `logout()` - Clear session and redirect
+- `getProfile()` - Fetch user profile and projects
+- `createProject(name)` - Create new project
+- `deleteProject(projectId)` - Delete project
+- `uploadDataset(file, projectId)` - Upload CSV files
+
+### Authentication Components
+
+#### LoginPage Component
+- **Purpose**: User authentication interface
+- **Features**:
+  - Username/password form validation
+  - Error message display
+  - Loading states during authentication
+  - Navigation to signup page
+- **Validation**: Client-side form validation
+- **Integration**: Connects to `/auth/login` endpoint
+
+#### SignupPage Component
+- **Purpose**: User registration interface
+- **Features**:
+  - Username/password/confirm password form
+  - Password strength validation
+  - Error message display
+  - Loading states during registration
+  - Navigation to login page
+- **Validation**: Password confirmation and strength checks
+- **Integration**: Connects to `/auth/signup` endpoint
+
+#### ProfilePage Component
+- **Purpose**: User dashboard with project management
+- **Features**:
+  - User profile display (username, user ID)
+  - Projects grid with click-to-open functionality
+  - Create new project modal
+  - Upload dataset modal with project selection
+  - Project deletion with confirmation
+  - Logout functionality
+- **State Management**: Local state for modals and project data
+- **Integration**: Full CRUD operations for projects and datasets
+
+## Project Management System
+
+### ProjectWorkspace Component
+
+**Purpose**: Main project interface with three-panel layout
+
+**Layout Structure:**
+```tsx
+<div className="app">
+  <div className="left-sidebar">     // Chat + Agents
+  <div className="center-workspace"> // Canvas + Project header
+  <div className="right-sidebar">    // Stats + File browser
+</div>
+```
+
+**Key Features:**
+- **Project Header**: Project name, back button, delete button
+- **Delete Confirmation**: Modal with "Are you sure?" dialog
+- **File Browser**: Displays project datasets in right sidebar
+- **Responsive Design**: Three-column layout with proper scrolling
+- **Error Handling**: Loading states and error messages
+
+**Project Operations:**
+- **View Project**: Display project details and datasets
+- **Delete Project**: Remove project with confirmation
+- **Dataset Management**: View uploaded datasets
+- **Navigation**: Back to profile page
+
+### Canvas Component (Updated)
+
+**Purpose**: Data science workspace area
+
+**Features:**
+- **Welcome Message**: For empty projects
+- **Dataset Display**: Grid of uploaded datasets
+- **Feature Overview**: Key capabilities showcase
+- **Project Integration**: Receives project ID and datasets as props
+- **Responsive Grid**: Auto-sizing dataset cards
+
+**Dataset Cards:**
+- Dataset name and statistics (rows × columns)
+- Action buttons (Open Explorer, Create Chart)
+- Hover effects and visual feedback
+- Click handlers for future functionality
 
 ### Left Sidebar
 
@@ -202,13 +330,40 @@ npm run lint         # Run ESLint
 - **HMR**: Hot Module Replacement enabled
 - **Proxy**: API requests proxied to backend
 
+## API Integration
+
+### Authentication Endpoints
+- **POST /auth/signup** - User registration
+- **POST /auth/login** - User authentication  
+- **POST /auth/logout** - User logout
+- **GET /auth/profile** - Get user profile and projects
+
+### Project Management Endpoints
+- **POST /projects/create** - Create new project
+- **GET /projects** - Get user's projects
+- **DELETE /projects/:projectId** - Delete project
+
+### Dataset Management Endpoints
+- **POST /uploadDataset** - Upload CSV file to project
+- **GET /datasets** - Get project datasets
+
+### Chat & AI Endpoints
+- **POST /chat** - Send chat message
+- **POST /chat/stream** - Streaming chat responses
+
+### Error Handling
+- **HTTP Status Codes**: Proper status code handling
+- **Error Messages**: User-friendly error display
+- **Loading States**: Visual feedback during API calls
+- **Retry Logic**: Automatic retry for failed requests
+
 ## Integration Points
 
 ### Backend Communication
-- **Health Check**: `GET /health`
-- **Chat API**: `POST /chat`
-- **Streaming**: `POST /chat/stream`
-- **CORS**: Configured for localhost:3001
+- **Base URL**: `http://localhost:3001`
+- **CORS**: Configured for cross-origin requests
+- **Authentication**: JWT Bearer token in headers
+- **Content-Type**: JSON for most requests, FormData for uploads
 
 ### CedarOS Integration
 - **Provider**: Mastra backend
@@ -218,45 +373,95 @@ npm run lint         # Run ESLint
 
 ## Recent Changes
 
-### File Browser Implementation
-1. **Added File Browser Section**: Bottom right of LiveSummaryStats component
-2. **Created useProjectFiles Hook**: Centralized file state management
-3. **File Upload Support**: Drag-and-drop and click-to-upload
-4. **File Type Icons**: Visual indicators for different file types
-5. **Project Structure**: Support for datasets/, models/, charts/ folders
-6. **Responsive Layout**: Proper scrolling and space distribution
+### Authentication System Implementation
+1. **AuthContext Provider**: Centralized authentication state management
+2. **JWT Token Handling**: Automatic token storage and retrieval
+3. **Login/Signup Pages**: Complete user authentication interface
+4. **Form Validation**: Client-side validation with error handling
+5. **Persistent Sessions**: Auto-login on application reload
+6. **API Integration**: Full backend communication for auth operations
 
-### Styling Updates
-1. **Right Sidebar Layout**: Flexbox layout for stats + file browser
-2. **File Item Styling**: Hover effects, selection states
-3. **Upload Zone**: Dashed border, hover animations
-4. **File Metadata**: Size, date formatting
-5. **Scrollable Areas**: Proper overflow handling
+### Project Management System
+1. **ProfilePage Component**: User dashboard with project management
+2. **Project CRUD Operations**: Create, read, update, delete projects
+3. **Dataset Upload**: CSV file upload with project selection
+4. **Project Navigation**: Click-to-open project workspace
+5. **State-based Routing**: Simple navigation without URL complexity
+6. **Modal Interfaces**: Create project and upload dataset modals
 
-### TypeScript Improvements
+### ProjectWorkspace Redesign
+1. **Three-Panel Layout**: Left sidebar, center workspace, right sidebar
+2. **Modern UI Design**: Updated with provided App.css styling
+3. **Project Header**: Project name, back button, delete functionality
+4. **Delete Confirmation**: Modal with "Are you sure?" dialog
+5. **File Browser Integration**: Project datasets in right sidebar
+6. **Responsive Design**: Proper scrolling and space distribution
+
+### Backend Integration
+1. **API Service**: Centralized backend communication
+2. **Error Handling**: Comprehensive error management
+3. **Loading States**: User feedback during operations
+4. **CRUD Endpoints**: Full project and dataset management
+5. **Authentication Middleware**: Secure API calls with JWT tokens
+
+### UI/UX Improvements
+1. **DataHex Logo**: Professional branding throughout
+2. **Consistent Styling**: Unified design system
+3. **Loading Animations**: Spinner and loading states
+4. **Error Messages**: User-friendly error display
+5. **Modal Design**: Clean, accessible modal interfaces
+6. **Button States**: Hover, active, and disabled states
+
+### TypeScript Enhancements
 1. **Type Safety**: Proper interfaces for all components
-2. **Hook Types**: Fully typed custom hooks
-3. **Environment Variables**: Fixed Vite env var usage
-4. **Build Configuration**: Resolved compilation errors
+2. **Context Types**: Fully typed authentication context
+3. **API Types**: Type-safe backend communication
+4. **Component Props**: Strict typing for all props
+5. **Build Configuration**: Resolved compilation errors
+
+## Key Features
+
+### ✅ Implemented Features
+- **User Authentication**: Complete login/signup system with JWT
+- **Project Management**: Create, view, and delete projects
+- **Dataset Upload**: CSV file upload with project association
+- **Project Workspace**: Three-panel layout for data science work
+- **File Browser**: View project datasets in organized interface
+- **Responsive Design**: Mobile-friendly layout
+- **Error Handling**: Comprehensive error management
+- **Loading States**: User feedback during operations
+- **Modal Interfaces**: Clean, accessible modal dialogs
+- **State Management**: React Context for global state
+
+### 🔄 Current Capabilities
+- **User Registration & Login**: Secure authentication system
+- **Project CRUD**: Full project lifecycle management
+- **Dataset Management**: Upload and view CSV files
+- **Project Navigation**: Seamless project switching
+- **Delete Confirmation**: Safe project deletion with confirmation
+- **Real-time Updates**: Live data updates from backend
+- **Professional UI**: Modern, clean interface design
 
 ## Future Enhancements
 
 ### Planned Features
 - **Real CedarOS Integration**: Replace stub with actual CedarOS
-- **File Operations**: Rename, delete, move files
-- **Folder Navigation**: Expand/collapse folder structure
-- **File Preview**: Quick preview of datasets and charts
-- **Drag & Drop**: File reordering and organization
-- **Context Menus**: Right-click file operations
-- **Real-time Updates**: Live file system updates
+- **Advanced File Operations**: Rename, move, organize files
+- **Dataset Analysis**: Built-in data exploration tools
+- **Chart Generation**: Interactive data visualization
+- **AI Agent Integration**: Real AI agent functionality
+- **Collaboration**: Multi-user project sharing
+- **Version Control**: Project and dataset versioning
+- **Export Features**: Download datasets and results
 
 ### Technical Improvements
 - **State Management**: Redux or Zustand for complex state
-- **Error Handling**: Comprehensive error boundaries
+- **Error Boundaries**: Comprehensive error handling
 - **Loading States**: Skeleton loaders and progress indicators
 - **Accessibility**: ARIA labels and keyboard navigation
 - **Testing**: Unit and integration tests
 - **Performance**: Code splitting and lazy loading
+- **PWA Features**: Offline capability and app-like experience
 
 ## Dependencies
 
