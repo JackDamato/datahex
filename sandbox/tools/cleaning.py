@@ -141,7 +141,8 @@ def drop_nulls(dataset_id: str, columns: Optional[List[str]] = None) -> Dict[str
 
         return {
             "newDatasetId": new_dataset_id,
-            "rows": len(new_df)
+            "rows": len(new_df),
+            "summary": summary
         }
 
     except FileNotFoundError:

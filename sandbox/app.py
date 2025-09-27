@@ -13,7 +13,7 @@ import logging
 
 # Import tool modules
 from tools.cleaning import drop_nulls, get_dataset_info
-from tools.runtime import execute_python
+from tools.runtime import execute_python, execute_python_on_dataset
 from tools.stats import compute_summary_stats
 from tools.plotgen import generate_plot
 from tools.train import train_model
@@ -54,6 +54,17 @@ class ExecutePythonResponse(BaseModel):
     stdout: str
     stderr: str
     returncode: int
+
+class ExecutePythonOnDatasetRequest(BaseModel):
+    datasetId: str
+    code: str
+
+class ExecutePythonOnDatasetResponse(BaseModel):
+    status: str
+    newDatasetId: Optional[str]
+    stdout: str
+    stderr: str
+    summary: str
 
 class SummaryStatsRequest(BaseModel):
     dataset_id: str
@@ -116,6 +127,14 @@ async def get_tools():
             }
         ),
         ToolInfo(
+            name="runtime.execute_python",
+            description="Execute arbitrary Python code on a dataset df to apply custom operations",
+            parameters={
+                "datasetId": "string",
+                "code": "string"
+            }
+        ),
+        ToolInfo(
             name="summary_stats",
             description="Compute summary statistics for a column",
             parameters={
@@ -159,19 +178,21 @@ async def drop_nulls_endpoint(request: DropNullsRequest):
         raise HTTPException(status_code=500, detail=f"Error cleaning data: {str(e)}")
 
 # Runtime execution endpoints
-@app.post("/mcp/runtime/execute_python", response_model=ExecutePythonResponse)
-async def execute_python_endpoint(request: ExecutePythonRequest):
-    """Execute Python code safely in subprocess with timeout."""
+@app.post("/mcp/runtime/execute_python", response_model=ExecutePythonOnDatasetResponse)
+async def execute_python_on_dataset_endpoint(request: ExecutePythonOnDatasetRequest):
+    """Execute Python code on a dataset with access to pandas DataFrame variable 'df'."""
     try:
-        result = execute_python(request.code)
-        return ExecutePythonResponse(
+        result = execute_python_on_dataset(request.datasetId, request.code)
+        return ExecutePythonOnDatasetResponse(
+            status=result["status"],
+            newDatasetId=result["newDatasetId"],
             stdout=result["stdout"],
             stderr=result["stderr"],
-            returncode=result["returncode"]
+            summary=result["summary"]
         )
     except Exception as e:
-        logger.error(f"Error in execute_python: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error executing Python code: {str(e)}")
+        logger.error(f"Error in execute_python_on_dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error executing Python code on dataset: {str(e)}")
 
 # Stub endpoints (return dummy responses)
 @app.post("/mcp/stats/summary", response_model=SummaryStatsResponse)
