@@ -18,6 +18,8 @@ import {
 } from './db';
 import { authMiddleware, optionalAuthMiddleware } from './authMiddleware';
 import { signupUser, loginUser, AuthUser } from './authServiceSimple';
+import orchestratorRouter from './routes/orchestrator';
+import clarificationsRouter from './routes/clarifications';
 
 // Stub implementation of Mastra's registerApiRoute
 function registerApiRoute(app: express.Application, path: string, config: { method: string; handler: (req: Request, res: Response) => void }) {
@@ -444,6 +446,14 @@ registerApiRoute(app, '/chat/stream', {
     }
   }
 });
+
+// ==================== ORCHESTRATOR API ====================
+
+// Mount orchestrator routes
+app.use('/api/orchestrator', orchestratorRouter);
+
+// Mount clarifications routes
+app.use('/api/projects', clarificationsRouter);
 
 // ==================== ERROR HANDLING ====================
 
