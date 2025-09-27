@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 
 /**
  * ModelingAgent - Machine learning model training and evaluation
@@ -96,7 +96,7 @@ Provide detailed machine learning guidance with practical implementation steps.`
       console.log('🤖 Starting AI-powered modeling planning...');
       
       try {
-        const response = await this.generateVNext([
+        const response = await this.generate([
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ]);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 import OpenAI from 'openai';
 
 /**
@@ -84,7 +84,7 @@ Provide realistic estimates and detailed explanations of your analysis.`;
       console.log('🤖 Starting AI-powered cleaning orchestration...');
       
       try {
-        const response = await this.generateVNext([
+        const response = await this.generate([
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ]);

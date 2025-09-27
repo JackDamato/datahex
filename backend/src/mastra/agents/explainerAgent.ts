@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 
 /**
  * ExplainerAgent - Result interpretation and insights generation

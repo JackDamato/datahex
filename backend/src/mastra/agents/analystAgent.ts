@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 
 /**
  * AnalystAgent - Statistical analysis and data insights
@@ -85,10 +85,21 @@ Provide realistic estimates and detailed statistical explanations.`;
       console.log('🤖 Starting AI-powered statistical analysis...');
       
       try {
-        const response = await this.generateVNext([
+        const response = await this.generate([
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
-        ]);
+        ],
+        {
+          temperature: 0.7,
+          maxSteps: 3,
+          providerOptions: {
+            openai: {
+              model: "gpt-4o-mini",  // Specify the model here
+              reasoningEffort: "high"
+            }
+          },
+        }
+      );
         
         const result = JSON.parse(response.text || '{}');
         console.log(`✅ Analysis Result: ${result.action}`);

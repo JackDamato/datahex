@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 
 /**
  * VisualizerAgent - Chart and visualization generation
@@ -88,7 +88,7 @@ Provide specific and actionable visualization guidance.`;
       console.log('🤖 Starting AI-powered visualization planning...');
       
       try {
-        const response = await this.generateVNext([
+        const response = await this.generate([
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ]);

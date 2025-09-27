@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 import { queryDatabase } from '../../db';
 import { clarificationQueue } from '../queues/clarificationQueue';
 // import { agentRegistry } from '../agentRegistry'; // Removed to avoid circular dependency
@@ -33,8 +33,8 @@ When making decisions, consider:
 
 Always provide a clear rationale for your decision and structure the input appropriately for the chosen agent.`,
       tools: {
-        clarification_check: clarificationTool,
-        agent_classification: classificationTool,
+        clarification: clarificationTool,
+        classification: classificationTool,
       },
       model: {
         provider: "openai",
@@ -69,7 +69,9 @@ Always provide a clear rationale for your decision and structure the input appro
       
       // Step 1: Check if we need clarification
       console.log('🔍 Checking if clarification is needed...');
-      const clarification = await clarificationTool.execute({ userQuery: input.userQuery }, { signal: new AbortController().signal });
+      const clarification = await clarificationTool.execute({
+        context: {userQuery: input.userQuery}
+      }as any);
       
       if (clarification.needsClarification) {
         console.log('❓ Clarification needed:', clarification.question);
@@ -91,7 +93,12 @@ Always provide a clear rationale for your decision and structure the input appro
 
       // Step 2: Classify which agent to call
       console.log('🤖 Classifying which agent should handle this request...');
-      const classification = await classificationTool.execute({ userQuery: input.userQuery }, { signal: new AbortController().signal });
+      const classification = await classificationTool.execute({
+        context: {
+          userQuery: input.userQuery
+        },
+      } as any);
+      
       
       console.log(`✅ Selected agent: ${classification.agentId}`);
       console.log(`💭 Reason: ${classification.reason}`);
