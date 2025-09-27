@@ -215,6 +215,13 @@ export async function getProjectById(projectId: string): Promise<any> {
   return projects[0] || null;
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  await insertDatabase(
+    'DELETE FROM projects WHERE projectId = ?',
+    [projectId]
+  );
+}
+
 // Dataset management functions
 export async function createDataset(projectId: string, name: string, path: string, rows: number = 0, columns: number = 0): Promise<string> {
   const datasetId = uuidv4();

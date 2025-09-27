@@ -11,6 +11,7 @@ import {
   createProject,
   getProjectsByUserId,
   getProjectById,
+  deleteProject,
   createDataset,
   getDatasetsByProjectId,
   getUserProfile
@@ -211,6 +212,41 @@ app.get('/projects', authMiddleware, async (req, res) => {
     res.status(500).json({ 
       error: 'Internal server error',
       code: 'GET_PROJECTS_ERROR'
+    });
+  }
+});
+
+// Delete project
+app.delete('/projects/:projectId', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user!.userId;
+    
+    if (!projectId) {
+      return res.status(400).json({ 
+        error: 'Project ID is required',
+        code: 'MISSING_PROJECT_ID'
+      });
+    }
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_NOT_FOUND'
+      });
+    }
+    
+    // Delete project (this will cascade delete datasets due to foreign key)
+    await deleteProject(projectId);
+    
+    res.json({ message: 'Project deleted successfully' });
+  } catch (error) {
+    console.error('Delete project error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'DELETE_PROJECT_ERROR'
     });
   }
 });
