@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_MASTRA_BASE_URL=http://backend:3001
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - FRONTEND_URL=http://frontend:5173
+    depends_on:
+      - sandbox
+
+  sandbox:
+    build:
+      context: ../sandbox
+      dockerfile: Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../sandbox:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+
+# Future services
+#  database:
+#    image: postgres:15
+#    environment:
+#      POSTGRES_DB: datacopilot
+#      POSTGRES_USER: admin
+#      POSTGRES_PASSWORD: password
+#    volumes:
+#      - postgres_data:/var/lib/postgresql/data
+#    ports:
+#      - "5432:5432"
+
+#volumes:
+#  postgres_data:

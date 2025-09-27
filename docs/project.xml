@@ -1,0 +1,84 @@
+<Project>
+  <Name>Data Science Copilot</Name>
+  <Vision>
+    Build a CedarOS + Mastra-powered multi-agent system where data scientists
+    can upload datasets and receive automated cleaning, analysis, visualization,
+    and modeling through specialized agents. The system emphasizes
+    explainability, interactivity, and productivity, replacing hours of
+    Jupyter notebook work with minutes of guided collaboration.
+  </Vision>
+
+  <Workflow>
+    <Step order="1">User uploads dataset (CSV, JSON, Excel, or API)</Step>
+    <Step order="2">Backend stores dataset (DuckDB or Parquet optional)</Step>
+    <Step order="3">CedarOS registers dataset state globally</Step>
+    <Step order="4">User requests agent operation via frontend (Cleaner, Modeler, etc.)</Step>
+    <Step order="5">Mastra orchestrator agent delegates task to specialized agent</Step>
+    <Step order="6">Agent checks tools → runs code in Python sandbox if needed</Step>
+    <Step order="7">Partial results streamed via WebSocket/SSE</Step>
+    <Step order="8">CedarOS updates states (summaryStats, charts, proposals)</Step>
+    <Step order="9">React components auto-update with latest state</Step>
+    <Step order="10">User reviews proposals in Agent Timeline (accept/decline)</Step>
+    <Step order="11">Final results saved optionally in DuckDB/Parquet</Step>
+  </Workflow>
+
+  <Agents>
+    <Agent name="Orchestrator" role="Directs workflow, delegates tasks, manages sequencing"/>
+    <Agent name="Cleaner" role="Fix NaNs, type conversions, remove/add columns"/>
+    <Agent name="AnalystEngineer" role="Feature engineering, transformations"/>
+    <Agent name="Visualizer" role="Generate Plotly/Chart.js visualizations"/>
+    <Agent name="CorrelationExpert" role="Find correlations, relationships, trends"/>
+    <Agent name="Modeler" role="Build predictive models with scikit-learn, evaluate metrics"/>
+    <Agent name="Explainer" role="Explain results to user, summarize agent outputs"/>
+  </Agents>
+
+  <Architecture>
+    <Frontend>
+      <Framework>React + CedarOS</Framework>
+      <State>Global CedarOS State for datasetRows, summaryStats, charts</State>
+      <UI>Unique multi-panel layout designed for data science workflows</UI>
+    </Frontend>
+    <Backend>
+      <Framework>Node.js + TypeScript + Mastra</Framework>
+      <Endpoints>
+        <Endpoint>/chat</Endpoint>
+        <Endpoint>/chat/stream</Endpoint>
+        <Endpoint>/runAgent?agent=Cleaner</Endpoint>
+      </Endpoints>
+    </Backend>
+    <Sandbox>
+      <Language>Python</Language>
+      <Purpose>Run generated code safely (Pandas, NumPy, Scikit-learn, Plotly)</Purpose>
+    </Sandbox>
+    <Database>
+      <Option>DuckDB</Option>
+      <Option>Parquet</Option>
+      <Purpose>Lightweight persistence, reproducibility</Purpose>
+    </Database>
+  </Architecture>
+
+  <Communication>
+    <API>REST</API>
+    <Realtime>WebSocket or SSE</Realtime>
+    <FrontendIntegration>CedarOS State Management</FrontendIntegration>
+  </Communication>
+
+  <DevelopmentPlan methodology="Waterfall">
+    <Phase name="Commit 00" goal="Repo setup, CedarOS + Mastra stub chat"/>
+    <Phase name="Commit 01" goal="Dataset upload + storage"/>
+    <Phase name="Commit 02" goal="Basic Cleaner agent"/>
+    <Phase name="Commit 03" goal="Visualizer agent + chart rendering"/>
+    <Phase name="Commit 04" goal="Correlation Expert"/>
+    <Phase name="Commit 05" goal="Modeling Expert"/>
+    <Phase name="Commit 06" goal="Explainer agent + UX polish"/>
+    <Phase name="Final" goal="End-to-end working demo with all agents"/>
+  </DevelopmentPlan>
+
+  <GuidingPrinciples>
+    <Principle>Agents are specialized and modular</Principle>
+    <Principle>User always sees proposals before acceptance</Principle>
+    <Principle>State is transparent and explainable via CedarOS</Principle>
+    <Principle>UI is designed around how data scientists think (not chatbots)</Principle>
+    <Principle>Lightweight infra, hackathon-friendly</Principle>
+  </GuidingPrinciples>
+</Project>

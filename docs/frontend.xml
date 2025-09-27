@@ -1,0 +1,47 @@
+<FrontendUI>
+  <CoreLayout>
+    <LeftSidebar>
+      <ChatPanel position="top" description="CedarOS-powered conversational panel, used to instruct agents and view high-level interactions"/>
+      <AgentBrowser position="bottom" description="Vertical scrollable list of available agents (Cleaner, Visualizer, etc.) with icons and quick actions"/>
+    </LeftSidebar>
+
+    <CenterWorkspace>
+      <Canvas description="Main drag-and-drop resizable area for opening and working with datasets, charts, and models">
+        <Window type="DatasetExplorer" features="sortable, filterable, resizable, fullscreen"/>
+        <Window type="Chart" features="plotly-powered, draggable, resizable, linkable to dataset columns"/>
+        <Window type="NotebookCell" features="executed code snippets from agents or sandbox"/>
+        <AgentProposalTimeline position="bottom" description="Timeline of agent suggestions (cleaning steps, models, visualizations). User can accept/decline, rollback, or compare proposals."/>
+      </Canvas>
+    </CenterWorkspace>
+
+    <RightSidebar>
+      <LiveSummaryStats dynamic="true" description="Always shows stats for the currently selected column(s) — mean, median, stddev, missing count, distributions"/>
+      <CorrelationMatrix enabled="multiColumn" description="When multiple columns are selected, render correlation heatmap and highlight significant relationships"/>
+      <FileBrowser position="bottom" description="List of uploaded datasets, processed versions, and generated files"/>
+    </RightSidebar>
+  </CoreLayout>
+
+  <GlobalStates>
+    <State name="datasetRows" source="CedarOS"/>
+    <State name="summaryStats" source="CedarOS"/>
+    <State name="charts" source="CedarOS"/>
+    <State name="proposals" source="Mastra Orchestrator"/>
+  </GlobalStates>
+
+  <UXGoals>
+    <Goal>Drag-resize canvas windows for flexible data science workflows</Goal>
+    <Goal>Intuitive left-sidebar separation of conversation (chat) and tools (agents)</Goal>
+    <Goal>Realtime updates from agents streamed directly to UI</Goal>
+    <Goal>Unique agent proposal timeline (like Git history but for data science steps)</Goal>
+    <Goal>Right sidebar contextual stats — always visible, dynamically updating</Goal>
+    <Goal>Maximize explainability: users see what each agent did and why</Goal>
+    <Goal>Support fullscreen focus mode for deep exploration</Goal>
+  </UXGoals>
+
+  <VisualIdentity>
+    <Design>Clean, modern, productivity-first</Design>
+    <Colors>Neutral with highlights for agent activity</Colors>
+    <Animations>Framer Motion for smooth panel transitions</Animations>
+    <Interactivity>Canvas drag-resize, hover tooltips, contextual menus</Interactivity>
+  </VisualIdentity>
+</FrontendUI>
