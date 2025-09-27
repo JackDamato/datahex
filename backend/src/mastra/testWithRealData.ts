@@ -116,8 +116,14 @@ async function testWithRealData() {
     console.log('\n💡 Testing ExplainerAgent with real data...');
     const explainer = new ExplainerAgent();
     const explainerResult = await explainer.run({
-      datasetId: dataset.datasetId,
-      datasetPath: dataset.path
+      action: 'explain',
+      context: {
+        datasetInfo: {
+          name: dataset.name,
+          rows: dataset.rows,
+          columns: dataset.columns
+        }
+      }
     }, context);
     console.log('✅ ExplainerAgent result:', {
       action: explainerResult.action,

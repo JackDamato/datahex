@@ -1,8 +1,13 @@
 import { z } from 'zod';
 import OpenAI from 'openai';
+import { mcpClient } from '../../mcpClient';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 /**
- * CorrelationAgent - AI-powered correlation analysis
+ * CorrelationAgent - AI-powered correlation analysis with Python sandbox integration
  */
 export class CorrelationAgent {
   public id: string = "correlation";
@@ -20,7 +25,11 @@ export class CorrelationAgent {
   async run(input: { 
     datasetId: string;
     datasetPath?: string;
-    options?: any;
+    options?: {
+      columns?: string[];
+      analysisType?: 'comprehensive' | 'quick' | 'detailed';
+      useSandbox?: boolean;
+    };
   }, context: {
     projectId: string;
     datasetId: string;
@@ -28,7 +37,15 @@ export class CorrelationAgent {
     metadata: Record<string, any>;
   }): Promise<any> {
     console.log(`🔗 CorrelationAgent: Analyzing correlations for ${input.datasetId}`);
-    
+    console.log(`📊 Project: ${context.projectId}, Dataset: ${context.datasetId}`);
+    console.log(`⚙️ Options:`, input.options);
+
+    // Check if sandbox integration is requested
+    if (input.options?.useSandbox || context.metadata?.sandboxIntegration) {
+      console.log('🔗 Using sandbox integration for correlation analysis...');
+      return await this.runWithSandbox(input, context);
+    }
+
     if (!this.openai) {
       return this.getSimulationResult(input, context);
     }
@@ -100,6 +117,104 @@ Respond with ONLY this JSON structure (no other text):
     } catch (error) {
       console.warn('⚠️ AI correlation analysis failed:', error);
       return this.getSimulationResult(input, context);
+    }
+  }
+
+  /**
+   * Run correlation analysis using sandbox integration
+   */
+  private async runWithSandbox(input: any, context: any) {
+    try {
+      console.log('🔗 Connecting to Python sandbox for correlation analysis...');
+
+      // Test sandbox connection
+      const health = await mcpClient.healthCheck();
+      console.log('✅ Sandbox connected:', health.status);
+
+      // Perform comprehensive correlation analysis
+      const analysisResult = await mcpClient.analyzeCorrelations({
+        dataset_id: input.datasetId,
+        columns: input.options?.columns,
+        analysis_type: input.options?.analysisType || 'comprehensive'
+      });
+
+      console.log('✅ Sandbox correlation analysis completed');
+      console.log(`📊 Dataset info: ${analysisResult.dataset_info.original_shape[0]} rows × ${analysisResult.dataset_info.original_shape[1]} columns`);
+      console.log(`🔗 Strong correlations: ${analysisResult.correlations.strong.length}`);
+      console.log(`📈 Linear trends: ${analysisResult.trends.linear_trends.length}`);
+      console.log(`💡 Insights: ${analysisResult.insights.length}`);
+
+      // Generate AI-powered summary using OpenAI
+      let aiSummary = null;
+      if (this.openai) {
+        console.log('🤖 Generating AI-powered summary...');
+        try {
+          const summaryResponse = await this.openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: "You are a data analyst. Summarize correlation analysis results in a clear, actionable way. Focus on the most important findings and business insights."
+              },
+              {
+                role: "user",
+                content: `Correlation Analysis Results:
+                - Strong correlations: ${analysisResult.correlations.strong.length}
+                - Moderate correlations: ${analysisResult.correlations.moderate.length}
+                - Linear trends: ${analysisResult.trends.linear_trends.length}
+                - Insights: ${analysisResult.insights.join('; ')}
+                
+                Please provide a concise summary highlighting the key findings.`
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 500
+          });
+
+          aiSummary = summaryResponse.choices[0]?.message?.content || null;
+        } catch (error) {
+          console.warn('⚠️ AI summary generation failed:', error);
+        }
+      }
+
+      return {
+        action: "sandbox_correlation_analysis",
+        reasoning: `Used Python sandbox to perform comprehensive correlation analysis with ${analysisResult.correlations.strong.length} strong correlations found`,
+        correlationPath: `/uploads/correlation_${input.datasetId}.json`,
+        sandboxAnalysisId: analysisResult.dataset_info.timestamp,
+        analysisResults: {
+          datasetInfo: analysisResult.dataset_info,
+          correlationMatrices: analysisResult.correlation_matrices,
+          heatmapData: analysisResult.heatmap_data,
+          correlations: analysisResult.correlations,
+          trends: analysisResult.trends,
+          statistics: analysisResult.statistics,
+          visualizationData: analysisResult.visualization_data
+        },
+        summary: {
+          strongCorrelations: analysisResult.correlations.strong.map(c => 
+            `${c.column1} vs ${c.column2}: ${c.correlation.toFixed(3)} (${c.direction})`
+          ),
+          weakCorrelations: analysisResult.correlations.moderate.map(c => 
+            `${c.column1} vs ${c.column2}: ${c.correlation.toFixed(3)} (${c.direction})`
+          ),
+          insights: analysisResult.insights,
+          aiSummary: aiSummary
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ Sandbox correlation analysis failed:', error);
+      return {
+        action: "sandbox_error",
+        reasoning: "Sandbox integration failed, falling back to simulation",
+        correlationPath: `/uploads/correlation_${input.datasetId}.json`,
+        summary: {
+          strongCorrelations: ["Sandbox connection failed"],
+          weakCorrelations: ["Analysis incomplete"],
+          insights: ["Correlation analysis failed", "Check sandbox connection"]
+        }
+      };
     }
   }
 

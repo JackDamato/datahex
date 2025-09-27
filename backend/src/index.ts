@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
 import csv from 'csv-parser';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 import { 
   initializeDatabase, 
   seedDatabase,
@@ -24,16 +26,178 @@ import {
 } from './db';
 import { authMiddleware, optionalAuthMiddleware } from './authMiddleware';
 import { signupUser, loginUser, AuthUser } from './authServiceSimple';
-<<<<<<< HEAD
 import orchestratorRouter from './routes/orchestrator';
 import clarificationsRouter from './routes/clarifications';
-=======
+import { chatService } from './services/chatService';
+import { versioningService } from './services/versioningService';
 import { mcpClient } from './mcpClient';
->>>>>>> 2130154e02979545ecfb2fc2fea8f99e6a9d4efd
+
+
 
 // Stub implementation of Mastra's registerApiRoute
 function registerApiRoute(app: express.Application, path: string, config: { method: string; handler: (req: Request, res: Response) => void }) {
   (app as any)[config.method.toLowerCase()](path, config.handler);
+}
+
+// Helper function to calculate summary statistics
+async function calculateSummaryStats(datasetPath: string, column: string) {
+  return new Promise((resolve, reject) => {
+    const results: any[] = [];
+    const columnData: number[] = [];
+    
+    fs.createReadStream(datasetPath)
+      .pipe(csv())
+      .on('data', (data) => {
+        results.push(data);
+        const value = parseFloat(data[column]);
+        if (!isNaN(value)) {
+          columnData.push(value);
+        }
+      })
+      .on('end', () => {
+        if (columnData.length === 0) {
+          resolve({
+            column,
+            mean: 0,
+            median: 0,
+            std: 0,
+            missing: results.length,
+            missingPercentage: 100,
+            unique: 0,
+            dataType: 'numeric'
+          });
+          return;
+        }
+        
+        const mean = columnData.reduce((a, b) => a + b, 0) / columnData.length;
+        const sorted = [...columnData].sort((a, b) => a - b);
+        const median = sorted.length % 2 === 0 
+          ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+          : sorted[Math.floor(sorted.length / 2)];
+        
+        const variance = columnData.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / columnData.length;
+        const std = Math.sqrt(variance);
+        
+        const unique = new Set(columnData).size;
+        const missing = results.length - columnData.length;
+        const missingPercentage = (missing / results.length) * 100;
+        
+        resolve({
+          column,
+          mean: parseFloat(mean.toFixed(4)),
+          median: parseFloat(median.toFixed(4)),
+          std: parseFloat(std.toFixed(4)),
+          missing,
+          missingPercentage: parseFloat(missingPercentage.toFixed(2)),
+          unique,
+          dataType: 'numeric'
+        });
+      })
+      .on('error', reject);
+  });
+}
+
+// Helper function to calculate correlation matrix
+async function calculateCorrelationMatrix(datasetPath: string, columns: string[]) {
+  return new Promise((resolve, reject) => {
+    const results: any[] = [];
+    
+    fs.createReadStream(datasetPath)
+      .pipe(csv())
+      .on('data', (data) => results.push(data))
+      .on('end', () => {
+        try {
+          console.log(`📊 Calculating correlation matrix for ${columns.length} columns`);
+          console.log(`📊 Dataset has ${results.length} rows`);
+          
+          // Extract numeric data for selected columns
+          const numericData: { [key: string]: number[] } = {};
+          const columnStats: { [key: string]: { total: number, numeric: number, nonNumeric: number } } = {};
+          
+          columns.forEach(col => {
+            const values = results.map(row => {
+              const val = row[col];
+              if (val === null || val === undefined || val === '') return null;
+              const parsed = parseFloat(val);
+              return isNaN(parsed) ? null : parsed;
+            });
+            
+            const numericValues = values.filter(val => val !== null) as number[];
+            numericData[col] = numericValues;
+            
+            columnStats[col] = {
+              total: values.length,
+              numeric: numericValues.length,
+              nonNumeric: values.length - numericValues.length
+            };
+            
+            console.log(`📊 Column ${col}: ${numericValues.length}/${values.length} numeric values`);
+          });
+          
+          // Filter to columns with sufficient numeric data
+          const validColumns = columns.filter(col => 
+            numericData[col].length >= 2 && // Need at least 2 points for correlation
+            columnStats[col].numeric / columnStats[col].total > 0.5 // At least 50% numeric
+          );
+          
+          console.log(`📊 Valid columns for correlation: ${validColumns.length}/${columns.length}`);
+          
+          if (validColumns.length < 2) {
+            return resolve({
+              columns: validColumns,
+              matrix: [],
+              timestamp: new Date().toISOString(),
+              error: 'Insufficient numeric data for correlation analysis'
+            });
+          }
+          
+          // Calculate correlation matrix
+          const matrix: number[][] = [];
+          
+          for (let i = 0; i < validColumns.length; i++) {
+            matrix[i] = [];
+            for (let j = 0; j < validColumns.length; j++) {
+              if (i === j) {
+                matrix[i][j] = 1.0;
+              } else {
+                const corr = calculateCorrelation(numericData[validColumns[i]], numericData[validColumns[j]]);
+                matrix[i][j] = parseFloat(corr.toFixed(4));
+              }
+            }
+          }
+          
+          console.log(`✅ Correlation matrix calculated: ${validColumns.length}x${validColumns.length}`);
+          
+          resolve({
+            columns: validColumns,
+            matrix,
+            timestamp: new Date().toISOString(),
+            stats: columnStats
+          });
+        } catch (error) {
+          console.error('❌ Error calculating correlation matrix:', error);
+          reject(error);
+        }
+      })
+      .on('error', reject);
+  });
+}
+
+// Helper function to calculate Pearson correlation coefficient
+function calculateCorrelation(x: number[], y: number[]): number {
+  if (x.length !== y.length || x.length === 0) return 0;
+  
+  const n = x.length;
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((acc, val, i) => acc + val * y[i], 0);
+  const sumX2 = x.reduce((acc, val) => acc + val * val, 0);
+  const sumY2 = y.reduce((acc, val) => acc + val * val, 0);
+  
+  const numerator = n * sumXY - sumX * sumY;
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  
+  return denominator === 0 ? 0 : numerator / denominator;
 }
 
 // Load environment variables
@@ -77,7 +241,7 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Data Science Copilot Backend is running' });
+  res.json({ status: 'ok', message: 'Data Science Copilot Backend is running', version: '1.0.0' });
 });
 
 // ==================== AUTHENTICATION ENDPOINTS ====================
@@ -174,7 +338,7 @@ app.get('/auth/profile', authMiddleware, async (req, res) => {
     }
     
     res.json(profile);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Profile error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
@@ -207,7 +371,7 @@ app.post('/projects/create', authMiddleware, async (req, res) => {
       createdAt: project.createdAt,
       datasets: [] // Include empty datasets array for new projects
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create project error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
@@ -223,7 +387,7 @@ app.get('/projects', authMiddleware, async (req, res) => {
     const projects = await getProjectsByUserId(userId);
     
     res.json(projects);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get projects error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
@@ -258,7 +422,7 @@ app.delete('/projects/:projectId', authMiddleware, async (req, res) => {
     await deleteProject(projectId);
     
     res.json({ message: 'Project deleted successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Delete project error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
@@ -331,7 +495,7 @@ app.post('/uploadDataset', (req: any, res: any) => {
         };
         
         res.status(201).json(response);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Upload error:', error);
         res.status(500).json({ 
           error: 'Internal server error',
@@ -359,7 +523,7 @@ app.get('/projects/:projectId/datasets', authMiddleware, async (req, res) => {
     
     const datasets = await getDatasetsByProjectId(projectId);
     res.json(datasets);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get datasets error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
@@ -736,6 +900,814 @@ app.use('/api/orchestrator', orchestratorRouter);
 // Mount clarifications routes
 app.use('/api/projects', clarificationsRouter);
 
+// ==================== SUMMARY STATS API ====================
+
+// Get summary statistics for a specific column
+app.get('/api/projects/:projectId/summary-stats/:column', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, column } = req.params;
+    const userId = req.user.id;
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    const datasetPath = path.join(__dirname, '..', 'uploads', dataset.fileName);
+    
+    // Check if file exists
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(404).json({ error: 'Dataset file not found' });
+    }
+    
+    // Calculate summary statistics
+    const stats = await calculateSummaryStats(datasetPath, column);
+    res.json(stats);
+    
+  } catch (error: any) {
+    console.error('Error calculating summary stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to calculate summary statistics',
+      details: error.message 
+    });
+  }
+});
+
+// Get correlation matrix for multiple columns
+app.post('/api/projects/:projectId/correlation-matrix', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { columns } = req.body;
+    const userId = req.user.id;
+    
+    if (!columns || !Array.isArray(columns) || columns.length < 2) {
+      return res.status(400).json({ error: 'At least 2 columns are required for correlation matrix' });
+    }
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    const datasetPath = path.join(__dirname, '..', 'uploads', dataset.fileName);
+    
+    // Check if file exists
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(404).json({ error: 'Dataset file not found' });
+    }
+    
+    // Calculate correlation matrix
+    const matrix = await calculateCorrelationMatrix(datasetPath, columns);
+    res.json(matrix);
+    
+  } catch (error: any) {
+    console.error('Error calculating correlation matrix:', error);
+    res.status(500).json({ 
+      error: 'Failed to calculate correlation matrix',
+      details: error.message 
+    });
+  }
+});
+
+// Streaming correlation analysis endpoint
+app.post('/api/projects/:projectId/correlation/stream', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { columns } = req.body;
+    const userId = req.user.id;
+    
+    if (!columns || !Array.isArray(columns) || columns.length < 2) {
+      return res.status(400).json({ error: 'At least 2 columns are required for correlation analysis' });
+    }
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    const datasetPath = path.join(__dirname, '..', 'uploads', dataset.fileName);
+    
+    // Check if file exists
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(404).json({ error: 'Dataset file not found' });
+    }
+    
+    // Set up Server-Sent Events
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial status
+    res.write(`data: ${JSON.stringify({ 
+      type: 'status', 
+      message: 'Starting correlation analysis...',
+      progress: 0 
+    })}\n\n`);
+    
+    try {
+      // Use sandbox for comprehensive analysis
+      const analysisResult = await mcpClient.analyzeCorrelations({
+        dataset_id: dataset.id,
+        columns: columns,
+        analysis_type: 'comprehensive'
+      });
+      
+      // Stream partial results
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Loading dataset...',
+        progress: 20,
+        data: { datasetInfo: analysisResult.dataset_info }
+      })}\n\n`);
+      
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Computing correlation matrices...',
+        progress: 40,
+        data: { correlationMatrices: analysisResult.correlation_matrices }
+      })}\n\n`);
+      
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Analyzing patterns and trends...',
+        progress: 60,
+        data: { 
+          correlations: analysisResult.correlations,
+          trends: analysisResult.trends 
+        }
+      })}\n\n`);
+      
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Generating visualizations...',
+        progress: 80,
+        data: { 
+          heatmapData: analysisResult.heatmap_data,
+          visualizationData: analysisResult.visualization_data
+        }
+      })}\n\n`);
+      
+      // Send final results
+      res.write(`data: ${JSON.stringify({ 
+        type: 'complete', 
+        message: 'Correlation analysis completed!',
+        progress: 100,
+        data: analysisResult
+      })}\n\n`);
+      
+      // Also broadcast via WebSocket
+      broadcastToProject(projectId, {
+        type: 'correlation_analysis_complete',
+        data: analysisResult,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (analysisError: any) {
+      res.write(`data: ${JSON.stringify({ 
+        type: 'error', 
+        message: 'Analysis failed: ' + (analysisError?.message || 'Unknown error'),
+        progress: 0
+      })}\n\n`);
+    }
+    
+    res.end();
+    
+  } catch (error: any) {
+    console.error('Error in streaming correlation analysis:', error);
+    res.status(500).json({ 
+      error: 'Failed to perform streaming correlation analysis',
+      details: error.message 
+    });
+  }
+});
+
+// Streaming visualization generation endpoint
+app.post('/api/projects/:projectId/visualization/stream', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { chartType, columns, options } = req.body;
+    const userId = req.user.id;
+    
+    if (!chartType || !columns || !Array.isArray(columns)) {
+      return res.status(400).json({ error: 'Chart type and columns are required' });
+    }
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    const datasetPath = path.join(__dirname, '..', 'uploads', dataset.fileName);
+    
+    // Check if file exists
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(404).json({ error: 'Dataset file not found' });
+    }
+    
+    // Set up Server-Sent Events
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial status
+    res.write(`data: ${JSON.stringify({ 
+      type: 'status', 
+      message: 'Starting visualization generation...',
+      progress: 0 
+    })}\n\n`);
+    
+    try {
+      // Use sandbox for visualization generation
+      const visualizationResult = await mcpClient.generateVisualization({
+        dataset_id: dataset.id,
+        chart_type: chartType,
+        columns: columns,
+        options: options || {}
+      });
+      
+      // Stream partial results
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Generating chart...',
+        progress: 30,
+        data: { 
+          chartType: visualizationResult.chart_type,
+          columnsUsed: visualizationResult.columns_used
+        }
+      })}\n\n`);
+      
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Creating PNG preview...',
+        progress: 60,
+        data: { 
+          pngPreview: visualizationResult.png_preview ? 'Generated' : 'Failed'
+        }
+      })}\n\n`);
+      
+      res.write(`data: ${JSON.stringify({ 
+        type: 'progress', 
+        message: 'Finalizing visualization...',
+        progress: 90,
+        data: { 
+          plotlyJson: visualizationResult.plotly_json,
+          metadata: visualizationResult.metadata
+        }
+      })}\n\n`);
+      
+      // Send final results
+      res.write(`data: ${JSON.stringify({ 
+        type: 'complete', 
+        message: 'Visualization completed!',
+        progress: 100,
+        data: visualizationResult
+      })}\n\n`);
+      
+      // Also broadcast via WebSocket
+      broadcastToProject(projectId, {
+        type: 'visualization_complete',
+        data: visualizationResult,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (visualizationError: any) {
+      res.write(`data: ${JSON.stringify({ 
+        type: 'error', 
+        message: 'Visualization failed: ' + visualizationError.message,
+        progress: 0
+      })}\n\n`);
+    }
+    
+    res.end();
+    
+  } catch (error: any) {
+    console.error('Error in streaming visualization:', error);
+    res.status(500).json({ 
+      error: 'Failed to perform streaming visualization',
+      details: error.message 
+    });
+  }
+});
+
+// Modeling endpoints
+app.post('/api/projects/:projectId/modeling/train', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { features, target, model_type, algorithm, test_size, random_state, hyperparameters } = req.body;
+    const userId = req.user.id;
+    
+    if (!features || !target || !model_type || !algorithm) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    
+    // Use sandbox for model training
+    const result = await mcpClient.trainModel({
+      dataset_id: dataset.id,
+      features,
+      target,
+      model_type,
+      algorithm,
+      test_size: test_size || 0.2,
+      random_state: random_state || 42,
+      hyperparameters: hyperparameters || {}
+    });
+    
+    res.json(result);
+    
+  } catch (error: any) {
+    console.error('Error in model training:', error);
+    res.status(500).json({ 
+      error: 'Failed to train model',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/projects/:projectId/modeling/compare', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { features, target, model_type, algorithms } = req.body;
+    const userId = req.user.id;
+    
+    if (!features || !target || !model_type || !algorithms) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    
+    // Get project to verify ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset for the project
+    const datasets = await getDatasetsByProjectId(projectId);
+    if (datasets.length === 0) {
+      return res.status(404).json({ error: 'No dataset found for this project' });
+    }
+    
+    const dataset = datasets[0];
+    
+    // Use sandbox for model comparison
+    const result = await mcpClient.compareModels({
+      dataset_id: dataset.id,
+      features,
+      target,
+      model_type,
+      algorithms
+    });
+    
+    res.json(result);
+    
+  } catch (error: any) {
+    console.error('Error in model comparison:', error);
+    res.status(500).json({ 
+      error: 'Failed to compare models',
+      details: error.message 
+    });
+  }
+});
+
+// Chat endpoints
+app.post('/api/projects/:projectId/chat/sessions', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const session = chatService.createSession(projectId);
+    res.json(session);
+    
+  } catch (error: any) {
+    console.error('Error creating chat session:', error);
+    res.status(500).json({ 
+      error: 'Failed to create chat session',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/projects/:projectId/chat/sessions', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const sessions = chatService.getProjectSessions(projectId);
+    res.json(sessions);
+    
+  } catch (error: any) {
+    console.error('Error getting chat sessions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get chat sessions',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/chat/sessions/:sessionId', authMiddleware, async (req: any, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+    
+    const session = chatService.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(session.projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    res.json(session);
+    
+  } catch (error: any) {
+    console.error('Error getting chat session:', error);
+    res.status(500).json({ 
+      error: 'Failed to get chat session',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/chat/sessions/:sessionId/messages', authMiddleware, async (req: any, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { content } = req.body;
+    const userId = req.user.id;
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Message content is required' });
+    }
+    
+    const session = chatService.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(session.projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const response = await chatService.processMessage(sessionId, content, userId);
+    if (!response) {
+      return res.status(500).json({ error: 'Failed to process message' });
+    }
+    
+    res.json(response);
+    
+  } catch (error: any) {
+    console.error('Error processing chat message:', error);
+    res.status(500).json({ 
+      error: 'Failed to process message',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/chat/sessions/:sessionId/summary', authMiddleware, async (req: any, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+    
+    const session = chatService.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(session.projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const summary = await chatService.getAnalysisSummary(sessionId, userId);
+    if (!summary) {
+      return res.status(500).json({ error: 'Failed to generate summary' });
+    }
+    
+    res.json(summary);
+    
+  } catch (error: any) {
+    console.error('Error generating analysis summary:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate summary',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/chat/common-questions', authMiddleware, async (req: any, res) => {
+  try {
+    const questions = chatService.getCommonQuestions();
+    res.json(questions);
+    
+  } catch (error: any) {
+    console.error('Error getting common questions:', error);
+    res.status(500).json({ 
+      error: 'Failed to get common questions',
+      details: error.message 
+    });
+  }
+});
+
+app.delete('/api/chat/sessions/:sessionId', authMiddleware, async (req: any, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.id;
+    
+    const session = chatService.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(session.projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const deleted = chatService.clearSession(sessionId);
+    if (!deleted) {
+      return res.status(500).json({ error: 'Failed to delete session' });
+    }
+    
+    res.json({ success: true });
+    
+  } catch (error: any) {
+    console.error('Error deleting chat session:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete session',
+      details: error.message 
+    });
+  }
+});
+
+// Versioning endpoints
+app.get('/api/projects/:projectId/datasets/:datasetId/versions', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const versionHistory = await versioningService.getVersionHistory(projectId, datasetId);
+    res.json(versionHistory);
+    
+  } catch (error: any) {
+    console.error('Error getting version history:', error);
+    res.status(500).json({ 
+      error: 'Failed to get version history',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/projects/:projectId/datasets/:datasetId/versions', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId } = req.params;
+    const { name, description, tags } = req.body;
+    const userId = req.user.id;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Version name is required' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Get dataset info
+    const datasets = await getDatasetsByProjectId(projectId);
+    const dataset = datasets.find(d => d.id === datasetId);
+    if (!dataset) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    const datasetPath = path.join(__dirname, '..', 'uploads', dataset.fileName);
+    if (!fs.existsSync(datasetPath)) {
+      return res.status(404).json({ error: 'Dataset file not found' });
+    }
+    
+    // Read file and get metadata
+    const fileBuffer = await fs.promises.readFile(datasetPath);
+    const metadata = {
+      rows: dataset.rows,
+      columns: dataset.columns,
+      columns_info: [], // Could be populated from actual analysis
+      transformations: [],
+      checksum: require('crypto').createHash('sha256').update(fileBuffer).digest('hex')
+    };
+    
+    const version = await versioningService.createVersion(
+      projectId,
+      datasetId,
+      name,
+      datasetPath,
+      metadata,
+      userId,
+      description,
+      tags || []
+    );
+    
+    res.json(version);
+    
+  } catch (error: any) {
+    console.error('Error creating version:', error);
+    res.status(500).json({ 
+      error: 'Failed to create version',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/projects/:projectId/datasets/:datasetId/versions/:version/switch', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId, version } = req.params;
+    const userId = req.user.id;
+    const versionNumber = parseInt(version);
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const activeVersion = await versioningService.switchToVersion(projectId, datasetId, versionNumber);
+    res.json(activeVersion);
+    
+  } catch (error: any) {
+    console.error('Error switching version:', error);
+    res.status(500).json({ 
+      error: 'Failed to switch version',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/projects/:projectId/datasets/:datasetId/versions/:version/download', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId, version } = req.params;
+    const userId = req.user.id;
+    const versionNumber = parseInt(version);
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const versionData = await versioningService.getVersion(projectId, datasetId, versionNumber);
+    if (!versionData) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+    
+    const fileBuffer = await versioningService.downloadVersion(versionData.id);
+    
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${versionData.name}_v${versionData.version}.csv"`);
+    res.send(fileBuffer);
+    
+  } catch (error: any) {
+    console.error('Error downloading version:', error);
+    res.status(500).json({ 
+      error: 'Failed to download version',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/projects/:projectId/datasets/:datasetId/versions/compare', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId } = req.params;
+    const { version1, version2 } = req.body;
+    const userId = req.user.id;
+    
+    if (!version1 || !version2) {
+      return res.status(400).json({ error: 'Both versions are required for comparison' });
+    }
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const version1Data = await versioningService.getVersion(projectId, datasetId, version1);
+    const version2Data = await versioningService.getVersion(projectId, datasetId, version2);
+    
+    if (!version1Data || !version2Data) {
+      return res.status(404).json({ error: 'One or both versions not found' });
+    }
+    
+    const comparison = await versioningService.compareVersions(version1Data.id, version2Data.id);
+    res.json(comparison);
+    
+  } catch (error: any) {
+    console.error('Error comparing versions:', error);
+    res.status(500).json({ 
+      error: 'Failed to compare versions',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/projects/:projectId/datasets/:datasetId/transformations', authMiddleware, async (req: any, res) => {
+  try {
+    const { projectId, datasetId } = req.params;
+    const userId = req.user.id;
+    
+    // Verify project ownership
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    const timeline = await versioningService.getTransformationTimeline(projectId, datasetId);
+    res.json(timeline);
+    
+  } catch (error: any) {
+    console.error('Error getting transformation timeline:', error);
+    res.status(500).json({ 
+      error: 'Failed to get transformation timeline',
+      details: error.message 
+    });
+  }
+});
+
 // ==================== ERROR HANDLING ====================
 
 // ==================== MCP SANDBOX INTEGRATION ====================
@@ -843,34 +1815,133 @@ app.use((error: any, req: Request, res: Response, next: any) => {
 });
 
 // Start server with error handling
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Data Science Copilot Backend running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔐 Auth signup: http://localhost:${PORT}/auth/signup`);
-  console.log(`🔐 Auth login: http://localhost:${PORT}/auth/login`);
-  console.log(`🔐 Auth logout: http://localhost:${PORT}/auth/logout`);
-  console.log(`👤 Auth profile: http://localhost:${PORT}/auth/profile`);
-  console.log(`📁 Create project: http://localhost:${PORT}/projects/create`);
-  console.log(`📋 Get projects: http://localhost:${PORT}/projects`);
-  console.log(`📁 Upload dataset: http://localhost:${PORT}/uploadDataset`);
-  console.log(`📊 Get datasets: http://localhost:${PORT}/datasets`);
-  console.log(`💬 Chat API: http://localhost:${PORT}/chat`);
-  console.log(`🌊 Stream API: http://localhost:${PORT}/chat/stream`);
-<<<<<<< HEAD
-});
+let server: any;
 
-// Handle port conflicts
-server.on('error', (err: any) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${PORT} is already in use. Please kill the process using this port.`);
-    console.error(`💡 Run: lsof -ti:${PORT} | xargs kill -9`);
-    console.error(`💡 Or run: npm run dev:kill`);
-    process.exit(1);
+function startServer() {
+  // Close existing server if it exists
+  if (server) {
+    console.log('🔄 Closing existing server...');
+    server.close(() => {
+      console.log('✅ Previous server closed');
+      createNewServer();
+    });
   } else {
-    console.error('❌ Server error:', err);
-    process.exit(1);
+    createNewServer();
+  }
+}
+
+function createNewServer() {
+  server = app.listen(PORT, () => {
+    console.log(`🚀 Data Science Copilot Backend running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+    console.log(`🔐 Auth signup: http://localhost:${PORT}/auth/signup`);
+    console.log(`🔐 Auth login: http://localhost:${PORT}/auth/login`);
+    console.log(`🔐 Auth logout: http://localhost:${PORT}/auth/logout`);
+    console.log(`👤 Auth profile: http://localhost:${PORT}/auth/profile`);
+    console.log(`📁 Create project: http://localhost:${PORT}/projects/create`);
+    console.log(`📋 Get projects: http://localhost:${PORT}/projects`);
+    console.log(`📁 Upload dataset: http://localhost:${PORT}/uploadDataset`);
+    console.log(`📊 Get datasets: http://localhost:${PORT}/datasets`);
+    console.log(`💬 Chat API: http://localhost:${PORT}/chat`);
+    console.log(`🌊 Stream API: http://localhost:${PORT}/chat/stream`);
+    console.log(`🔧 MCP Health: http://localhost:${PORT}/mcp/health`);
+    console.log(`🛠️ MCP Tools: http://localhost:${PORT}/mcp/tools`);
+    console.log(`🧹 MCP Clean: http://localhost:${PORT}/mcp/clean/drop_nulls`);
+    console.log(`🐍 MCP Python: http://localhost:${PORT}/mcp/execute_python`);
+    console.log(`🔗 WebSocket: ws://localhost:${PORT}/ws`);
+    
+    // Initialize WebSocket server after HTTP server is ready
+    if (!wss) {
+      wss = new WebSocketServer({ server, path: '/ws' });
+      setupWebSocketHandlers();
+    }
+  });
+
+  // Handle server errors
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${PORT} is already in use. Retrying in 1 second...`);
+      setTimeout(() => {
+        startServer();
+      }, 1000);
+    } else {
+      console.error('❌ Server error:', err);
+      process.exit(1);
+    }
+  });
+}
+
+// Start the server
+startServer();
+
+// Handle nodemon restarts
+process.on('SIGUSR2', () => {
+  console.log('🔄 Nodemon restart detected, closing server gracefully...');
+  if (server) {
+    server.close(() => {
+      console.log('✅ Server closed for restart');
+      process.exit(0);
+    });
+  } else {
+    process.exit(0);
   }
 });
+
+// WebSocket server for real-time correlation analysis streaming
+let wss: WebSocketServer;
+
+// Store active connections by project ID
+const activeConnections = new Map<string, Set<any>>();
+
+function setupWebSocketHandlers() {
+  wss.on('connection', (ws, req) => {
+    console.log('🔗 New WebSocket connection established');
+    
+    // Extract project ID from query parameters
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const projectId = url.searchParams.get('projectId');
+    
+    if (projectId) {
+      if (!activeConnections.has(projectId)) {
+        activeConnections.set(projectId, new Set());
+      }
+      activeConnections.get(projectId)!.add(ws);
+      console.log(`📊 WebSocket connected for project: ${projectId}`);
+    }
+    
+    ws.on('close', () => {
+      console.log('🔌 WebSocket connection closed');
+      if (projectId && activeConnections.has(projectId)) {
+        activeConnections.get(projectId)!.delete(ws);
+        if (activeConnections.get(projectId)!.size === 0) {
+          activeConnections.delete(projectId);
+        }
+      }
+    });
+    
+    ws.on('error', (error) => {
+      console.error('❌ WebSocket error:', error);
+    });
+  });
+}
+
+// Helper function to broadcast to project connections
+function broadcastToProject(projectId: string, message: any) {
+  const connections = activeConnections.get(projectId);
+  if (connections) {
+    const messageStr = JSON.stringify(message);
+    connections.forEach(ws => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(messageStr);
+      }
+    });
+  }
+}
+
+// Export for use in other modules
+export { broadcastToProject };
+
+// Port conflict handling is now handled in createNewServer()
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -887,10 +1958,4 @@ process.on('SIGINT', () => {
     console.log('✅ Process terminated');
     process.exit(0);
   });
-=======
-  console.log(`🔧 MCP Health: http://localhost:${PORT}/mcp/health`);
-  console.log(`🛠️ MCP Tools: http://localhost:${PORT}/mcp/tools`);
-  console.log(`🧹 MCP Clean: http://localhost:${PORT}/mcp/clean/drop_nulls`);
-  console.log(`🐍 MCP Python: http://localhost:${PORT}/mcp/execute_python`);
->>>>>>> 2130154e02979545ecfb2fc2fea8f99e6a9d4efd
 });
