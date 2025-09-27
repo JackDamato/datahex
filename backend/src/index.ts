@@ -47,7 +47,7 @@ async function calculateSummaryStats(datasetPath: string, column: string) {
     
     fs.createReadStream(datasetPath)
       .pipe(csv())
-      .on('data', (data) => {
+      .on('data', (data: any) => {
         results.push(data);
         const value = parseFloat(data[column]);
         if (!isNaN(value)) {
@@ -104,7 +104,7 @@ async function calculateCorrelationMatrix(datasetPath: string, columns: string[]
     
     fs.createReadStream(datasetPath)
       .pipe(csv())
-      .on('data', (data) => results.push(data))
+      .on('data', (data: any) => results.push(data))
       .on('end', () => {
         try {
           console.log(`📊 Calculating correlation matrix for ${columns.length} columns`);

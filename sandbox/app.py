@@ -17,10 +17,29 @@ from tools.runtime import execute_python, execute_python_on_dataset
 from tools.stats import compute_summary_stats
 from tools.plotgen import generate_plot
 from tools.train import train_model
+from tools.correlation import analyze_correlations
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Environment variables
+import os
+import requests
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:3001")
+
+async def resolve_dataset_path(dataset_id: str) -> str:
+    """Resolve dataset_id to actual file path by calling backend API."""
+    try:
+        response = requests.get(f"{BACKEND_URL}/datasets/{dataset_id}")
+        if response.status_code != 200:
+            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        
+        dataset_info = response.json()
+        return dataset_info["path"]
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Error resolving dataset: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -91,9 +110,25 @@ class TrainRequest(BaseModel):
     target: str
     type: str
 
+class CorrelationAnalysisRequest(BaseModel):
+    dataset_id: str
+    columns: Optional[List[str]] = None
+    analysis_type: str = "comprehensive"
+
 class TrainResponse(BaseModel):
     metrics: Dict[str, float]
     artifactPath: str
+
+class CorrelationAnalysisResponse(BaseModel):
+    analysis_type: str
+    dataset_info: Dict[str, Any]
+    correlation_matrices: Dict[str, Any]
+    heatmap_data: Dict[str, Any]
+    correlations: Dict[str, List[Dict[str, Any]]]
+    trends: Dict[str, Any]
+    statistics: Dict[str, Any]
+    insights: List[str]
+    visualization_data: Dict[str, Any]
 
 class ToolInfo(BaseModel):
     name: str
@@ -160,6 +195,15 @@ async def get_tools():
                 "target": "string",
                 "type": "string (regression|classification)"
             }
+        ),
+        ToolInfo(
+            name="correlation.analyze",
+            description="Perform comprehensive correlation analysis on a dataset",
+            parameters={
+                "dataset_id": "string - ID of the dataset to analyze",
+                "columns": "array of strings (optional) - Specific columns to analyze",
+                "analysis_type": "string - Type of analysis (quick/comprehensive/detailed)"
+            }
         )
     ]
 
@@ -220,6 +264,33 @@ async def train_endpoint(request: TrainRequest):
         metrics={"r2_score": 0.0, "mse": 0.0, "rmse": 0.0, "mae": 0.0},
         artifactPath="stub_artifact.pkl"
     )
+
+@app.post("/mcp/correlation/analyze", response_model=CorrelationAnalysisResponse)
+async def correlation_analysis_endpoint(request: CorrelationAnalysisRequest):
+    """Perform comprehensive correlation analysis on a dataset."""
+    try:
+        # Check if dataset_id is a direct file path or needs resolution
+        if request.dataset_id.endswith('.csv') or request.dataset_id.endswith('.parquet'):
+            # Direct file path
+            dataset_path = request.dataset_id
+            if not dataset_path.startswith('/'):
+                dataset_path = f"/sandbox/{dataset_path}"
+        else:
+            # Dataset ID - resolve through backend
+            dataset_path = await resolve_dataset_path(request.dataset_id)
+        
+        if not os.path.exists(dataset_path):
+            raise HTTPException(status_code=404, detail=f"Dataset file not found: {dataset_path}")
+        
+        result = analyze_correlations(
+            dataset_path,
+            request.columns,
+            request.analysis_type
+        )
+        
+        return CorrelationAnalysisResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing correlations: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
