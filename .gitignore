@@ -442,7 +442,7 @@ dist
 *.csv
 *.xlsx
 *.xls
-*.json
+# *.json
 *.parquet
 *.h5
 *.hdf5
