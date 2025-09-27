@@ -14,7 +14,9 @@ import {
   deleteProject,
   createDataset,
   getDatasetsByProjectId,
-  getUserProfile
+  getUserProfile,
+  createDatasetVersion,
+  getDatasetVersionHistory
 } from './db';
 import { authMiddleware, optionalAuthMiddleware } from './authMiddleware';
 import { signupUser, loginUser, AuthUser } from './authServiceSimple';
@@ -495,6 +497,17 @@ app.post('/mcp/clean/drop_nulls', authMiddleware, async (req: any, res) => {
 
     const result = await mcpClient.dropNulls({ dataset_id, columns });
     
+    // Create dataset version entry
+    if (result.newDatasetId) {
+      await createDatasetVersion(
+        dataset_id,
+        result.newDatasetId,
+        'drop_nulls',
+        columns ? JSON.stringify(columns) : null,
+        req.user.userId
+      );
+    }
+    
     // Log the operation for audit
     console.log(`User ${req.user.userId} cleaned dataset ${dataset_id}, result: ${result.newDatasetId}`);
     
@@ -530,6 +543,61 @@ app.post('/mcp/execute_python', authMiddleware, async (req: any, res) => {
     console.error('Python execution error:', error);
     res.status(500).json({
       error: 'Failed to execute Python code',
+      details: error.message
+    });
+  }
+});
+
+// Execute Python code on dataset
+app.post('/mcp/execute_python_on_dataset', authMiddleware, async (req: any, res) => {
+  try {
+    const { datasetId, code } = req.body;
+    
+    if (!datasetId || !code) {
+      return res.status(400).json({
+        error: 'datasetId and code are required',
+        code: 'MISSING_PARAMETERS'
+      });
+    }
+
+    const result = await mcpClient.executePythonOnDataset({ datasetId, code });
+    
+    // Create dataset version entry if new dataset was created
+    if (result.newDatasetId) {
+      await createDatasetVersion(
+        datasetId,
+        result.newDatasetId,
+        'execute_python',
+        JSON.stringify({ code }),
+        req.user.userId
+      );
+    }
+    
+    // Log the operation for audit
+    console.log(`User ${req.user.userId} executed Python on dataset ${datasetId}, new dataset: ${result.newDatasetId}`);
+    
+    res.json(result);
+  } catch (error: any) {
+    console.error('Python dataset execution error:', error);
+    res.status(500).json({
+      error: 'Failed to execute Python code on dataset',
+      details: error.message
+    });
+  }
+});
+
+// Get dataset version history
+app.get('/mcp/dataset/:datasetId/versions', authMiddleware, async (req: any, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    const versions = await getDatasetVersionHistory(datasetId);
+    
+    res.json({ versions });
+  } catch (error: any) {
+    console.error('Get dataset versions error:', error);
+    res.status(500).json({
+      error: 'Failed to get dataset versions',
       details: error.message
     });
   }

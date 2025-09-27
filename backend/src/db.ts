@@ -96,7 +96,29 @@ export function initializeDatabase(): Promise<void> {
               return;
             }
             console.log('✅ Files table created/verified');
-            resolve();
+            
+            // Create dataset_versions table for tracking dataset transformations
+            database.run(`
+              CREATE TABLE IF NOT EXISTS dataset_versions (
+                versionId TEXT PRIMARY KEY,
+                originalDatasetId TEXT NOT NULL,
+                newDatasetId TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                operationParams TEXT,
+                userId TEXT NOT NULL,
+                createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (originalDatasetId) REFERENCES datasets (datasetId),
+                FOREIGN KEY (userId) REFERENCES users (userId)
+              )
+            `, (err) => {
+              if (err) {
+                console.error('Error creating dataset_versions table:', err);
+                reject(err);
+                return;
+              }
+              console.log('✅ Dataset versions table created/verified');
+              resolve();
+            });
           });
         });
       });
@@ -282,6 +304,41 @@ export async function getUserProfile(userId: string): Promise<any> {
     username: user.username,
     projects
   };
+}
+
+// Dataset version management functions
+export async function createDatasetVersion(
+  originalDatasetId: string,
+  newDatasetId: string,
+  operation: string,
+  operationParams: string | null,
+  userId: string
+): Promise<string> {
+  const versionId = uuidv4();
+  await insertDatabase(
+    `INSERT INTO dataset_versions (versionId, originalDatasetId, newDatasetId, operation, operationParams, userId) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [versionId, originalDatasetId, newDatasetId, operation, operationParams, userId]
+  );
+  return versionId;
+}
+
+export async function getDatasetVersions(datasetId: string): Promise<any[]> {
+  return await queryDatabase(
+    `SELECT * FROM dataset_versions WHERE originalDatasetId = ? ORDER BY createdAt DESC`,
+    [datasetId]
+  );
+}
+
+export async function getDatasetVersionHistory(datasetId: string): Promise<any[]> {
+  return await queryDatabase(
+    `SELECT dv.*, u.username 
+     FROM dataset_versions dv 
+     JOIN users u ON dv.userId = u.userId 
+     WHERE dv.originalDatasetId = ? 
+     ORDER BY dv.createdAt DESC`,
+    [datasetId]
+  );
 }
 
 // Seed database with test data

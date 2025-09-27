@@ -7,7 +7,7 @@
 
 import axios, { AxiosResponse } from 'axios';
 
-const SANDBOX_BASE_URL = process.env.SANDBOX_URL || 'http://localhost:8080';
+const SANDBOX_BASE_URL = process.env.SANDBOX_URL || 'http://python-sandbox:8080';
 
 export interface DropNullsRequest {
   dataset_id: string;
@@ -27,6 +27,19 @@ export interface ExecutePythonResponse {
   stdout: string;
   stderr: string;
   returncode: number;
+}
+
+export interface ExecutePythonOnDatasetRequest {
+  datasetId: string;
+  code: string;
+}
+
+export interface ExecutePythonOnDatasetResponse {
+  status: string;
+  newDatasetId: string | null;
+  stdout: string;
+  stderr: string;
+  summary: string;
 }
 
 export interface SandboxHealthResponse {
@@ -102,6 +115,21 @@ export class MCPClient {
       return response.data;
     } catch (error) {
       throw new Error(`Python execution failed: ${error}`);
+    }
+  }
+
+  /**
+   * Execute Python code on a dataset with access to df variable
+   */
+  async executePythonOnDataset(request: ExecutePythonOnDatasetRequest): Promise<ExecutePythonOnDatasetResponse> {
+    try {
+      const response: AxiosResponse<ExecutePythonOnDatasetResponse> = await axios.post(
+        `${this.baseUrl}/mcp/runtime/execute_python`,
+        request
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error(`Python dataset execution failed: ${error}`);
     }
   }
 

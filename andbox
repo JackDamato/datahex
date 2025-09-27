@@ -1,0 +1,55 @@
+[1mdiff --git a/backend/src/mcpClient.ts b/backend/src/mcpClient.ts[m
+[1mindex 34fb0de..57be775 100644[m
+[1m--- a/backend/src/mcpClient.ts[m
+[1m+++ b/backend/src/mcpClient.ts[m
+[36m@@ -7,7 +7,7 @@[m
+ [m
+ import axios, { AxiosResponse } from 'axios';[m
+ [m
+[31m-const SANDBOX_BASE_URL = process.env.SANDBOX_URL || 'http://localhost:8080';[m
+[32m+[m[32mconst SANDBOX_BASE_URL = process.env.SANDBOX_URL || 'http://python-sandbox:8080';[m
+ [m
+ export interface DropNullsRequest {[m
+   dataset_id: string;[m
+[36m@@ -29,6 +29,19 @@[m [mexport interface ExecutePythonResponse {[m
+   returncode: number;[m
+ }[m
+ [m
+[32m+[m[32mexport interface ExecutePythonOnDatasetRequest {[m
+[32m+[m[32m  datasetId: string;[m
+[32m+[m[32m  code: string;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport interface ExecutePythonOnDatasetResponse {[m
+[32m+[m[32m  status: string;[m
+[32m+[m[32m  newDatasetId: string | null;[m
+[32m+[m[32m  stdout: string;[m
+[32m+[m[32m  stderr: string;[m
+[32m+[m[32m  summary: string;[m
+[32m+[m[32m}[m
+[32m+[m
+ export interface SandboxHealthResponse {[m
+   status: string;[m
+   message: string;[m
+[36m@@ -105,6 +118,21 @@[m [mexport class MCPClient {[m
+     }[m
+   }[m
+ [m
+[32m+[m[32m  /**[m
+[32m+[m[32m   * Execute Python code on a dataset with access to df variable[m
+[32m+[m[32m   */[m
+[32m+[m[32m  async executePythonOnDataset(request: ExecutePythonOnDatasetRequest): Promise<ExecutePythonOnDatasetResponse> {[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const response: AxiosResponse<ExecutePythonOnDatasetResponse> = await axios.post([m
+[32m+[m[32m        `${this.baseUrl}/mcp/runtime/execute_python`,[m
+[32m+[m[32m        request[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return response.data;[m
+[32m+[m[32m    } catch (error) {[m
+[32m+[m[32m      throw new Error(`Python dataset execution failed: ${error}`);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }[m
+[32m+[m
+   /**[m
+    * Test connection to sandbox[m
+    */[m
