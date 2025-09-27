@@ -1,6 +1,11 @@
 {
   "watch": ["src"],
   "ext": "ts,json",
-  "ignore": ["src/**/*.spec.ts"],
-  "exec": "ts-node src/index.ts"
+  "ignore": ["src/**/*.spec.ts", "dist/**/*"],
+  "exec": "ts-node src/index.ts",
+  "restartable": "rs",
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": 1000
 }

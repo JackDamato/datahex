@@ -57,7 +57,15 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onProjectClick }) => {
     try {
       setCreatingProject(true);
       const newProject = await apiService.createProject(newProjectName.trim());
-      setProjects(prev => [newProject, ...prev]);
+      console.log('Created project:', newProject); // Debug log
+      
+      // Ensure the project has a datasets array
+      const projectWithDatasets = {
+        ...newProject,
+        datasets: newProject.datasets || []
+      };
+      
+      setProjects(prev => [projectWithDatasets, ...prev]);
       setNewProjectName('');
       setShowCreateProject(false);
     } catch (err) {
@@ -181,13 +189,13 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onProjectClick }) => {
                   <h3>{project.name}</h3>
                   <p className="project-date">Created: {formatDate(project.createdAt)}</p>
                   <p className="dataset-count">
-                    {project.datasets.length} dataset{project.datasets.length !== 1 ? 's' : ''}
+                    {project.datasets?.length || 0} dataset{(project.datasets?.length || 0) !== 1 ? 's' : ''}
                   </p>
                   
-                  {project.datasets.length > 0 && (
+                  {(project.datasets?.length || 0) > 0 && (
                     <div className="datasets-list">
                       <h4>Datasets:</h4>
-                      {project.datasets.map((dataset) => (
+                      {project.datasets?.map((dataset) => (
                         <div key={dataset.datasetId} className="dataset-item">
                           <span className="dataset-name">{dataset.name}</span>
                           <span className="dataset-info">

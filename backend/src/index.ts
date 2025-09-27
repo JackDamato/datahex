@@ -5,6 +5,7 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
+import csv from 'csv-parser';
 import { 
   initializeDatabase, 
   seedDatabase,
@@ -14,7 +15,12 @@ import {
   deleteProject,
   createDataset,
   getDatasetsByProjectId,
-  getUserProfile
+  getUserProfile,
+  createFile,
+  getFilesByProjectId,
+  getFileById,
+  deleteFile,
+  updateFile
 } from './db';
 import { authMiddleware, optionalAuthMiddleware } from './authMiddleware';
 import { signupUser, loginUser, AuthUser } from './authServiceSimple';
@@ -34,6 +40,9 @@ const PORT = process.env.PORT || 3001;
 initializeDatabase()
   .then(() => seedDatabase())
   .catch(console.error);
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Configure multer for file uploads
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -189,7 +198,8 @@ app.post('/projects/create', authMiddleware, async (req, res) => {
     res.status(201).json({
       projectId: project.projectId,
       name: project.name,
-      createdAt: project.createdAt
+      createdAt: project.createdAt,
+      datasets: [] // Include empty datasets array for new projects
     });
   } catch (error) {
     console.error('Create project error:', error);
@@ -302,8 +312,12 @@ app.post('/uploadDataset', (req: any, res: any) => {
         // Create dataset record
         const datasetId = await createDataset(projectId, fileName, filePath, rows, columns);
         
+        // Also create a file record for the new file system API
+        const fileId = await createFile(projectId, fileName, 'dataset', req.file.size, filePath);
+        
         const response = {
           datasetId,
+          fileId,
           name: fileName,
           rows,
           columns,
@@ -348,6 +362,101 @@ app.get('/projects/:projectId/datasets', authMiddleware, async (req, res) => {
   }
 });
 
+// Get dataset data for a specific project
+app.get('/api/projects/:projectId/dataset', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user!.userId;
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_ACCESS_DENIED'
+      });
+    }
+
+    // Get the first dataset file for this project
+    const files = await getFilesByProjectId(projectId);
+    const datasetFile = files.find(file => file.type === 'dataset');
+    
+    if (!datasetFile) {
+      return res.status(404).json({ 
+        error: 'No dataset found for this project',
+        code: 'NO_DATASET_FOUND'
+      });
+    }
+
+    // Read and parse the actual CSV file
+    const csvPath = path.resolve(datasetFile.path);
+    const allRows: string[][] = [];
+    const headers: string[] = [];
+    let isFirstRow = true;
+    let currentRowIndex = 0;
+
+    return new Promise((resolve, reject) => {
+      fs.createReadStream(csvPath)
+        .pipe(csv())
+        .on('data', (data: any) => {
+          if (isFirstRow) {
+            // Extract headers from the first row
+            headers.push(...Object.keys(data));
+            isFirstRow = false;
+            return; // Skip the first row (headers)
+          }
+          
+          // Convert data object to array of values
+          const row = headers.map(header => data[header] || '');
+          allRows.push(row);
+          currentRowIndex++;
+        })
+        .on('end', () => {
+          // Infer column types from first 10 rows
+          const types: Record<string, string> = {};
+          headers.forEach(header => {
+            const sampleValues = allRows.slice(0, Math.min(10, allRows.length)).map(row => row[headers.indexOf(header)]);
+            const hasNumbers = sampleValues.some(val => !isNaN(Number(val)) && val !== '');
+            const hasDecimals = sampleValues.some(val => val.includes('.') && !isNaN(Number(val)));
+            
+            if (hasDecimals) {
+              types[header] = 'float';
+            } else if (hasNumbers) {
+              types[header] = 'int';
+            } else {
+              types[header] = 'string';
+            }
+          });
+
+          const datasetData = {
+            id: datasetFile.id,
+            projectId: projectId,
+            name: datasetFile.name,
+            headers: headers,
+            rows: allRows,
+            types: types,
+            totalRows: allRows.length
+          };
+
+          res.json(datasetData);
+        })
+        .on('error', (error: any) => {
+          console.error('CSV parsing error:', error);
+          res.status(500).json({ 
+            error: 'Failed to parse CSV file',
+            code: 'CSV_PARSE_ERROR'
+          });
+        });
+    });
+  } catch (error) {
+    console.error('Get dataset error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'GET_DATASET_ERROR'
+    });
+  }
+});
+
 // Legacy endpoint for backward compatibility
 app.get('/datasets', authMiddleware, async (req, res) => {
   try {
@@ -375,6 +484,174 @@ app.get('/datasets', authMiddleware, async (req, res) => {
     res.status(500).json({ 
       error: 'Internal server error',
       code: 'GET_DATASETS_ERROR'
+    });
+  }
+});
+
+// ==================== FILE ENDPOINTS ====================
+
+// Get files for a specific project
+app.get('/api/projects/:projectId/files', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.user!.userId;
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_ACCESS_DENIED'
+      });
+    }
+    
+    const files = await getFilesByProjectId(projectId);
+    // Map fileId to id and path to filePath for frontend compatibility
+    const mappedFiles = files.map(file => ({
+      ...file,
+      id: file.fileId,
+      filePath: file.path
+    }));
+    res.json(mappedFiles);
+  } catch (error) {
+    console.error('Get files error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'GET_FILES_ERROR'
+    });
+  }
+});
+
+// Create a new file
+app.post('/api/projects/:projectId/files', authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { name, type, size, path, metadata } = req.body;
+    const userId = req.user!.userId;
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_ACCESS_DENIED'
+      });
+    }
+    
+    if (!name || !type || !path) {
+      return res.status(400).json({ 
+        error: 'Name, type, and path are required',
+        code: 'MISSING_FILE_DATA'
+      });
+    }
+    
+    if (!['dataset', 'chart', 'model', 'image'].includes(type)) {
+      return res.status(400).json({ 
+        error: 'Invalid file type. Must be dataset, chart, model, or image',
+        code: 'INVALID_FILE_TYPE'
+      });
+    }
+    
+    const fileId = await createFile(projectId, name, type, size || 0, path, metadata);
+    const file = await getFileById(fileId);
+    
+    res.status(201).json(file);
+  } catch (error) {
+    console.error('Create file error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'CREATE_FILE_ERROR'
+    });
+  }
+});
+
+// Download a file
+app.get('/api/projects/:projectId/files/:fileId/download', authMiddleware, async (req, res) => {
+  try {
+    const { projectId, fileId } = req.params;
+    const userId = req.user!.userId;
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_ACCESS_DENIED'
+      });
+    }
+    
+    const file = await getFileById(fileId);
+    if (!file || file.projectId !== projectId) {
+      return res.status(404).json({ 
+        error: 'File not found',
+        code: 'FILE_NOT_FOUND'
+      });
+    }
+    
+    const filePath = path.join(__dirname, '..', file.path);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ 
+        error: 'File not found on disk',
+        code: 'FILE_NOT_FOUND_ON_DISK'
+      });
+    }
+    
+    // Set appropriate headers
+    res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    // Stream the file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch (error) {
+    console.error('Download file error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'DOWNLOAD_FILE_ERROR'
+    });
+  }
+});
+
+// Delete a file
+app.delete('/api/projects/:projectId/files/:fileId', authMiddleware, async (req, res) => {
+  try {
+    const { projectId, fileId } = req.params;
+    const userId = req.user!.userId;
+    
+    // Verify project belongs to user
+    const project = await getProjectById(projectId);
+    if (!project || project.userId !== userId) {
+      return res.status(403).json({ 
+        error: 'Project not found or access denied',
+        code: 'PROJECT_ACCESS_DENIED'
+      });
+    }
+    
+    const file = await getFileById(fileId);
+    if (!file || file.projectId !== projectId) {
+      return res.status(404).json({ 
+        error: 'File not found',
+        code: 'FILE_NOT_FOUND'
+      });
+    }
+    
+    await deleteFile(fileId);
+    
+    // Optionally delete the physical file
+    const filePath = path.join(__dirname, '..', file.path);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    
+    res.json({ message: 'File deleted successfully' });
+  } catch (error) {
+    console.error('Delete file error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      code: 'DELETE_FILE_ERROR'
     });
   }
 });
@@ -464,8 +741,8 @@ app.use((error: any, req: Request, res: Response, next: any) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
+// Start server with error handling
+const server = app.listen(PORT, () => {
   console.log(`🚀 Data Science Copilot Backend running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth signup: http://localhost:${PORT}/auth/signup`);
@@ -478,4 +755,34 @@ app.listen(PORT, () => {
   console.log(`📊 Get datasets: http://localhost:${PORT}/datasets`);
   console.log(`💬 Chat API: http://localhost:${PORT}/chat`);
   console.log(`🌊 Stream API: http://localhost:${PORT}/chat/stream`);
+});
+
+// Handle port conflicts
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use. Please kill the process using this port.`);
+    console.error(`💡 Run: lsof -ti:${PORT} | xargs kill -9`);
+    console.error(`💡 Or run: npm run dev:kill`);
+    process.exit(1);
+  } else {
+    console.error('❌ Server error:', err);
+    process.exit(1);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
 });
