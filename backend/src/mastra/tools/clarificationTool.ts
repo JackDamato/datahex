@@ -1,4 +1,3 @@
-import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
 const inputSchema = z.object({
@@ -10,12 +9,12 @@ const outputSchema = z.object({
   question: z.string().optional(),
 });
 
-export const clarificationTool = createTool({
+export const clarificationTool = {
   id: "orchestrator.clarification",
   description: "Check if user query needs clarification.",
   inputSchema,
   outputSchema,
-  execute: async ({ context }) => {
+  execute: async ({ context }: { context: { userQuery: string } }) => {
     const { userQuery } = context;
 
     // Simple rule-based clarification detection
@@ -55,4 +54,4 @@ export const clarificationTool = createTool({
 
     return { needsClarification: false };
   },
-});
+};

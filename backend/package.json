@@ -24,7 +24,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@mastra/core": "^0.1.26",
+    "@mastra/core": "^0.18.0",
     "@types/multer": "^2.0.0",
     "@types/sqlite3": "^3.1.11",
     "bcrypt": "^5.1.1",

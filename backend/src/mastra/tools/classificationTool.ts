@@ -1,4 +1,3 @@
-import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
 const inputSchema = z.object({
@@ -17,12 +16,12 @@ const outputSchema = z.object({
   reason: z.string(),
 });
 
-export const classificationTool = createTool({
+export const classificationTool = {
   id: "orchestrator.classification",
   description: "Classify which agent should handle the user query.",
   inputSchema,
   outputSchema,
-  execute: async ({ context }) => {
+  execute: async ({ context }: { context: { userQuery: string } }) => {
     const { userQuery } = context;
     const lowerQuery = userQuery.toLowerCase();
 
@@ -35,6 +34,8 @@ export const classificationTool = createTool({
       analyst: [
         "analyze", "analysis", "statistics", "statistical", "summary", "describe", "mean", "median",
         "standard deviation", "distribution", "explore", "exploration", "insights", "trends",
+        "engineer", "engineering", "features", "feature", "transform", "transformation",
+        "create features", "new features", "feature creation", "data engineering"
       ],
       visualizer: [
         "chart", "plot", "graph", "visualize", "visualization", "scatter", "histogram", "bar",
@@ -54,11 +55,25 @@ export const classificationTool = createTool({
       ],
     };
 
-    // Score each agent based on keyword matches
+    // Score each agent based on keyword matches with priority weighting
     const scores: Record<string, number> = {};
     Object.entries(agentKeywords).forEach(([agentId, keywords]) => {
       scores[agentId] = keywords.reduce((score, keyword) => {
-        return lowerQuery.includes(keyword) ? score + 1 : score;
+        if (lowerQuery.includes(keyword)) {
+          // Give higher priority to more specific keywords
+          if (keyword.includes('correlation') || keyword.includes('relationship')) {
+            return score + 3; // High priority for correlation-specific terms
+          } else if (keyword.includes('model') || keyword.includes('predict')) {
+            return score + 3; // High priority for modeling terms
+          } else if (keyword.includes('chart') || keyword.includes('plot')) {
+            return score + 3; // High priority for visualization terms
+          } else if (keyword.includes('clean') || keyword.includes('missing')) {
+            return score + 3; // High priority for cleaning terms
+          } else {
+            return score + 1; // Standard priority for other terms
+          }
+        }
+        return score;
       }, 0);
     });
 
@@ -92,4 +107,4 @@ export const classificationTool = createTool({
       reason,
     };
   },
-});
+};

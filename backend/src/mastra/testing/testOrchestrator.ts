@@ -183,9 +183,9 @@ class OrchestratorTester {
 
       const result = await this.agent.run(input, this.context);
       
-      console.log(`   Result: ${result.action}`);
-      if (result.targetAgent) {
-        console.log(`   Selected Agent: ${result.targetAgent}`);
+      console.log(`   Result: ${result.action || result.nextAgent}`);
+      if (result.nextAgent) {
+        console.log(`   Selected Agent: ${result.nextAgent}`);
       }
       console.log(`   Reasoning: ${result.rationale}`);
       
@@ -196,10 +196,10 @@ class OrchestratorTester {
         passed = result.action === "clarify";
         console.log(`   ${passed ? '✅ PASS' : '❌ FAIL'} - Should request clarification`);
       } else if (test.expectedAgent) {
-        passed = result.action === "dispatch" && result.targetAgent === test.expectedAgent;
+        passed = result.nextAgent === test.expectedAgent;
         console.log(`   ${passed ? '✅ PASS' : '❌ FAIL'} - Should route to ${test.expectedAgent}`);
       } else {
-        passed = result.action === "dispatch" && result.targetAgent;
+        passed = result.nextAgent && result.nextAgent !== "explainer";
         console.log(`   ${passed ? '✅ PASS' : '❌ FAIL'} - Should route to some agent`);
       }
       
@@ -266,10 +266,10 @@ class OrchestratorTester {
           };
 
           const result = await this.agent.run(input, this.context);
-          const passed = result.action === "dispatch" && result.targetAgent === expectedAgent;
+          const passed = result.nextAgent === expectedAgent;
           
           console.log(`  ${i + 1}. "${query}"`);
-          console.log(`     Expected: ${expectedAgent}, Got: ${result.targetAgent || result.action}`);
+          console.log(`     Expected: ${expectedAgent}, Got: ${result.nextAgent || result.action}`);
           console.log(`     ${passed ? '✅' : '❌'} ${passed ? 'PASS' : 'FAIL'}`);
           
         } catch (error: any) {

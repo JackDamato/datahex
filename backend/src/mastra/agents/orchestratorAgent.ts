@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { Agent } from '@mastra/core/agent';
+import OpenAI from 'openai';
 import { queryDatabase } from '../../db';
 import { clarificationQueue } from '../queues/clarificationQueue';
-// import { agentRegistry } from '../agentRegistry'; // Removed to avoid circular dependency
 import { clarificationTool } from '../tools/clarificationTool';
 import { classificationTool } from '../tools/classificationTool';
 
@@ -10,39 +9,17 @@ import { classificationTool } from '../tools/classificationTool';
  * OrchestratorAgent - AI-powered workflow coordinator
  * Integrates with existing project/dataset DB model to make intelligent routing decisions
  */
-export class OrchestratorAgent extends Agent {
+export class OrchestratorAgent {
+  public id: string = "orchestrator";
+  public name: string = "Orchestrator Agent";
+  private openai: OpenAI | null = null;
+
   constructor() {
-    super({
-      id: "orchestrator",
-      name: "Orchestrator Agent",
-      instructions: `You are the Orchestrator Agent for a data science platform. Your job is to analyze user requests and decide which specialized agent should handle the task next.
-
-Available Agents:
-- cleaner: Data cleaning, null handling, type conversions
-- analyst: Feature engineering, transformations, statistical analysis  
-- visualizer: Chart generation, plotting, data visualization
-- correlation: Finding relationships, correlations, trends in data
-- modeling: Machine learning models, predictions, model training
-- explainer: Result interpretation, summarization, insights
-
-When making decisions, consider:
-1. The user's query and intent
-2. The current project state and dataset characteristics
-3. Previous actions taken in the workflow
-4. The most logical next step in a data science pipeline
-
-Always provide a clear rationale for your decision and structure the input appropriately for the chosen agent.`,
-      tools: {
-        clarification: clarificationTool,
-        classification: classificationTool,
-      },
-      model: {
-        provider: "openai",
-        name: "gpt-4o-mini",
-        modelId: "gpt-4o-mini",
-        apiKey: process.env.OPENAI_API_KEY || "dummy-key"
-      } as any
-    });
+    if (process.env.OPENAI_API_KEY) {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+    }
   }
 
   /**
@@ -135,14 +112,11 @@ Always provide a clear rationale for your decision and structure the input appro
       }
 
       return {
-        action: "dispatch",
-        targetAgent: classification.agentId,
-        agentInput: { 
-          datasetId: projectData?.datasetId || input.projectId,
-          ...(projectData ? { datasetPath: projectData.datasetPath } : {})
-        },
-        agentResult,
+        nextAgent: classification.agentId,
         rationale: classification.reason,
+        confidence: 0.85,
+        agentResult,
+        projectData
       };
 
     } catch (error) {
@@ -150,9 +124,10 @@ Always provide a clear rationale for your decision and structure the input appro
       
       // Fallback: Return a request for clarification
       return {
-        action: "clarify",
-        question: "I encountered an error processing your request. Could you please rephrase or provide more details?",
-        rationale: "Error occurred during orchestration, requesting clarification as fallback"
+        nextAgent: "explainer",
+        rationale: "Error occurred during orchestration, using explainer as fallback",
+        confidence: 0.3,
+        error: (error as Error).message
       };
     }
   }
