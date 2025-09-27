@@ -1,59 +1,73 @@
 """
-FastAPI MCP Tool Server for Data Science Copilot
+FastAPI MCP Tool Server
 
-This module provides a FastAPI server that exposes MCP (Model Context Protocol) tools
-for data cleaning, statistical analysis, plotting, and machine learning training.
+This module provides a FastAPI-based MCP (Model Context Protocol) tool server
+for data science operations including cleaning, statistics, plotting, and training.
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import os
-import uuid
-import json
-from pathlib import Path
+import logging
 
-from tools.cleaning import drop_nulls
+# Import tool modules
+from tools.cleaning import drop_nulls, get_dataset_info
+from tools.runtime import execute_python, execute_python_on_dataset
 from tools.stats import compute_summary_stats
 from tools.plotgen import generate_plot
 from tools.train import train_model
-from utils.sandbox_runner import run_tool_safely
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Data Science Copilot Python Sandbox",
-    description="MCP Tool Server for data cleaning, stats, plotting, and ML training",
+    title="Python MCP Tool Server",
+    description="Data Science MCP Tool Server with cleaning, stats, plotting, and training capabilities",
     version="1.0.0"
 )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic models for request/response
-class ToolInfo(BaseModel):
-    name: str
-    description: str
-    parameters: Dict[str, Any]
-
+# Request/Response Models
 class DropNullsRequest(BaseModel):
-    dataset_path: str
+    dataset_id: str
     columns: Optional[List[str]] = None
 
 class DropNullsResponse(BaseModel):
-    newDatasetPath: str
+    newDatasetId: str
     rows: int
-    columns: int
+
+class ExecutePythonRequest(BaseModel):
+    code: str
+
+class ExecutePythonResponse(BaseModel):
+    stdout: str
+    stderr: str
+    returncode: int
+
+class ExecutePythonOnDatasetRequest(BaseModel):
+    datasetId: str
+    code: str
+
+class ExecutePythonOnDatasetResponse(BaseModel):
+    status: str
+    newDatasetId: Optional[str]
+    stdout: str
+    stderr: str
     summary: str
 
 class SummaryStatsRequest(BaseModel):
-    dataset_path: str
+    dataset_id: str
     column: str
 
 class SummaryStatsResponse(BaseModel):
@@ -63,201 +77,149 @@ class SummaryStatsResponse(BaseModel):
     nullPct: float
     histogram: List[Dict[str, Any]]
 
-class PlotRequest(BaseModel):
-    dataset_path: str
-    type: str  # histogram, scatter, heatmap
+class PlotGenerateRequest(BaseModel):
+    dataset_id: str
+    type: str
     columns: List[str]
 
-class PlotResponse(BaseModel):
+class PlotGenerateResponse(BaseModel):
     plotly_json: Dict[str, Any]
 
 class TrainRequest(BaseModel):
-    dataset_path: str
+    dataset_id: str
     features: List[str]
     target: str
-    type: str  # classification, regression
+    type: str
 
 class TrainResponse(BaseModel):
     metrics: Dict[str, float]
     artifactPath: str
 
+class ToolInfo(BaseModel):
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint to verify service is running."""
-    return {"status": "ok"}
+    """Health check endpoint."""
+    return {"status": "ok", "message": "Python MCP Tool Server is running"}
 
-# MCP tools discovery endpoint
-@app.get("/mcp/tools")
-async def get_mcp_tools():
-    """Return list of available MCP tools and their parameters."""
-    tools = [
+# Tools registry endpoint
+@app.get("/mcp/tools", response_model=List[ToolInfo])
+async def get_tools():
+    """Get list of available tools and their parameters."""
+    return [
         ToolInfo(
             name="drop_nulls",
             description="Remove rows with null values from dataset",
             parameters={
-                "dataset_path": {"type": "string", "description": "Path to the dataset file"},
-                "columns": {"type": "array", "description": "Optional list of columns to check for nulls", "required": False}
+                "dataset_id": "string",
+                "columns": "List[string] (optional)"
+            }
+        ),
+        ToolInfo(
+            name="execute_python",
+            description="Execute Python code safely in subprocess",
+            parameters={
+                "code": "string"
+            }
+        ),
+        ToolInfo(
+            name="runtime.execute_python",
+            description="Execute arbitrary Python code on a dataset df to apply custom operations",
+            parameters={
+                "datasetId": "string",
+                "code": "string"
             }
         ),
         ToolInfo(
             name="summary_stats",
             description="Compute summary statistics for a column",
             parameters={
-                "dataset_path": {"type": "string", "description": "Path to the dataset file"},
-                "column": {"type": "string", "description": "Name of the column to analyze"}
+                "dataset_id": "string",
+                "column": "string"
             }
         ),
         ToolInfo(
-            name="generate_plot",
+            name="plot_generate",
             description="Generate Plotly visualization",
             parameters={
-                "dataset_path": {"type": "string", "description": "Path to the dataset file"},
-                "type": {"type": "string", "description": "Type of plot: histogram, scatter, heatmap"},
-                "columns": {"type": "array", "description": "List of columns to use in the plot"}
+                "dataset_id": "string",
+                "type": "string (histogram|scatter|heatmap)",
+                "columns": "List[string]"
             }
         ),
         ToolInfo(
             name="train_model",
-            description="Train a machine learning model",
+            description="Train machine learning model",
             parameters={
-                "dataset_path": {"type": "string", "description": "Path to the dataset file"},
-                "features": {"type": "array", "description": "List of feature columns"},
-                "target": {"type": "string", "description": "Target column name"},
-                "type": {"type": "string", "description": "Model type: classification or regression"}
+                "dataset_id": "string",
+                "features": "List[string]",
+                "target": "string",
+                "type": "string (regression|classification)"
             }
         )
     ]
-    return {"tools": tools}
 
 # Data cleaning endpoints
 @app.post("/mcp/clean/drop_nulls", response_model=DropNullsResponse)
-async def clean_drop_nulls(request: DropNullsRequest):
-    """Remove rows with null values from the dataset."""
+async def drop_nulls_endpoint(request: DropNullsRequest):
+    """Remove rows with null values from dataset."""
     try:
-        # Ensure dataset exists
-        if not os.path.exists(request.dataset_path):
-            raise HTTPException(status_code=404, detail="Dataset file not found")
-        
-        # Run the cleaning tool safely
-        result = await run_tool_safely(
-            drop_nulls,
-            request.dataset_path,
-            request.columns
-        )
-        
+        result = drop_nulls(request.dataset_id, request.columns)
         return DropNullsResponse(
-            newDatasetPath=result["newDatasetPath"],
-            rows=result["rows"],
-            columns=result["columns"],
+            newDatasetId=result["newDatasetId"],
+            rows=result["rows"]
+        )
+    except Exception as e:
+        logger.error(f"Error in drop_nulls: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error cleaning data: {str(e)}")
+
+# Runtime execution endpoints
+@app.post("/mcp/runtime/execute_python", response_model=ExecutePythonOnDatasetResponse)
+async def execute_python_on_dataset_endpoint(request: ExecutePythonOnDatasetRequest):
+    """Execute Python code on a dataset with access to pandas DataFrame variable 'df'."""
+    try:
+        result = execute_python_on_dataset(request.datasetId, request.code)
+        return ExecutePythonOnDatasetResponse(
+            status=result["status"],
+            newDatasetId=result["newDatasetId"],
+            stdout=result["stdout"],
+            stderr=result["stderr"],
             summary=result["summary"]
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing dataset: {str(e)}")
+        logger.error(f"Error in execute_python_on_dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error executing Python code on dataset: {str(e)}")
 
-# Statistical analysis endpoints
+# Stub endpoints (return dummy responses)
 @app.post("/mcp/stats/summary", response_model=SummaryStatsResponse)
-async def get_summary_stats(request: SummaryStatsRequest):
-    """Compute summary statistics for a specific column."""
-    try:
-        # Ensure dataset exists
-        if not os.path.exists(request.dataset_path):
-            raise HTTPException(status_code=404, detail="Dataset file not found")
-        
-        # Run the stats tool safely
-        result = await run_tool_safely(
-            compute_summary_stats,
-            request.dataset_path,
-            request.column
-        )
-        
-        return SummaryStatsResponse(
-            mean=result["mean"],
-            median=result["median"],
-            std=result["std"],
-            nullPct=result["nullPct"],
-            histogram=result["histogram"]
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error computing statistics: {str(e)}")
+async def summary_stats_endpoint(request: SummaryStatsRequest):
+    """Compute summary statistics for a column (STUB)."""
+    return SummaryStatsResponse(
+        mean=0.0,
+        median=0.0,
+        std=0.0,
+        nullPct=0.0,
+        histogram=[]
+    )
 
-# Plotting endpoints
-@app.post("/mcp/plot/generate", response_model=PlotResponse)
-async def generate_plot_endpoint(request: PlotRequest):
-    """Generate a Plotly visualization."""
-    try:
-        # Ensure dataset exists
-        if not os.path.exists(request.dataset_path):
-            raise HTTPException(status_code=404, detail="Dataset file not found")
-        
-        # Validate plot type
-        valid_types = ["histogram", "scatter", "heatmap"]
-        if request.type not in valid_types:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid plot type. Must be one of: {valid_types}"
-            )
-        
-        # Call the plot generation function directly
-        result = generate_plot(
-            request.dataset_path,
-            request.type,
-            request.columns
-        )
-        
-        return PlotResponse(plotly_json=result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating plot: {str(e)}")
+@app.post("/mcp/plot/generate", response_model=PlotGenerateResponse)
+async def plot_generate_endpoint(request: PlotGenerateRequest):
+    """Generate Plotly visualization (STUB)."""
+    return PlotGenerateResponse(
+        plotly_json={"data": [], "layout": {}}
+    )
 
-# Machine learning endpoints
 @app.post("/mcp/train", response_model=TrainResponse)
-async def train_model_endpoint(request: TrainRequest):
-    """Train a machine learning model."""
-    try:
-        # Ensure dataset exists
-        if not os.path.exists(request.dataset_path):
-            raise HTTPException(status_code=404, detail="Dataset file not found")
-        
-        # Validate model type
-        valid_types = ["classification", "regression"]
-        if request.type not in valid_types:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid model type. Must be one of: {valid_types}"
-            )
-        
-        # Run the training tool safely
-        result = await run_tool_safely(
-            train_model,
-            request.dataset_path,
-            request.features,
-            request.target,
-            request.type
-        )
-        
-        return TrainResponse(
-            metrics=result["metrics"],
-            artifactPath=result["artifactPath"]
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error training model: {str(e)}")
-
-# Root endpoint
-@app.get("/")
-async def root():
-    """Root endpoint with basic information."""
-    return {
-        "message": "Data Science Copilot Python Sandbox",
-        "version": "1.0.0",
-        "endpoints": {
-            "health": "/health",
-            "tools": "/mcp/tools",
-            "clean": "/mcp/clean/drop_nulls",
-            "stats": "/mcp/stats/summary",
-            "plot": "/mcp/plot/generate",
-            "train": "/mcp/train"
-        }
-    }
+async def train_endpoint(request: TrainRequest):
+    """Train machine learning model (STUB)."""
+    return TrainResponse(
+        metrics={"r2_score": 0.0, "mse": 0.0, "rmse": 0.0, "mae": 0.0},
+        artifactPath="stub_artifact.pkl"
+    )
 
 if __name__ == "__main__":
     import uvicorn

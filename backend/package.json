@@ -4,10 +4,16 @@
   "description": "Backend for Data Science Copilot - Mastra + Node.js + TypeScript",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon src/index.ts",
+    "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx ts-node src/mastra/testing/testRunner.ts",
+    "test:all": "npx ts-node src/mastra/testing/testAllAgents.ts",
+    "test:orchestrator": "npx ts-node src/mastra/testing/testOrchestrator.ts",
+    "test:individual": "npx ts-node src/mastra/testing/testIndividualAgents.ts",
+    "test:integration": "npx ts-node src/mastra/testing/testAgentIntegration.ts",
+    "test:focus": "npx ts-node src/mastra/testing/testRunner.ts focus",
+    "test:suite": "npx ts-node src/mastra/testing/testRunner.ts suite"
   },
   "keywords": [
     "data-science",
@@ -18,8 +24,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.896.0",
+    "@mastra/core": "^0.18.0",
     "@types/multer": "^2.0.0",
     "@types/sqlite3": "^3.1.11",
+    "@types/ws": "^8.18.1",
+    "axios": "^1.12.2",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
@@ -30,8 +40,11 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "openai": "^5.23.1",
     "sqlite3": "^5.1.7",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "ws": "^8.18.3",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

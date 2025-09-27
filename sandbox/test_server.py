@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import uvicorn
 
 app = FastAPI()
 
@@ -11,6 +12,5 @@ def health():
     return {"status": "ok"}
 
 if __name__ == "__main__":
-    import uvicorn
-    print("Starting test server...")
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    print("Starting minimal test server...")
+    uvicorn.run(app, host="0.0.0.0", port=8081)

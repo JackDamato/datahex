@@ -482,3 +482,10 @@ curl http://localhost:8080/health
 **Status**: Production Ready ✅  
 **Last Updated**: September 27, 2025  
 **Version**: 1.0.0
+
+
+# Data Science Microservice: FastAPI sandbox with Mastra integration
+- POST /mcp/clean/drop_nulls: Removes null rows from parquet datasets
+- POST /mcp/runtime/execute_python: Safe Python execution with subprocess isolation
+- MCP client (axios) enables backend-to-sandbox communication on port 8080
+- Stub endpoints for stats/plot/train with proper request/response models
