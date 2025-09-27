@@ -22,6 +22,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ projectId }) => {
   console.log('FileBrowser - fileTree length:', fileTree.length);
   
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
+    datasets: false,
     models: false,
     charts: false
   });
@@ -62,6 +63,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ projectId }) => {
   // Group files by type
   const groupFilesByType = () => {
     const grouped = {
+      datasets: fileTree.filter(file => file.type === 'dataset'),
       models: fileTree.filter(file => file.type === 'model'),
       charts: fileTree.filter(file => file.type === 'chart')
     };
@@ -72,6 +74,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ projectId }) => {
   // Get category display name
   const getCategoryName = (type: string) => {
     switch (type) {
+      case 'datasets': return 'Datasets';
       case 'models': return 'Models';
       case 'charts': return 'Charts';
       default: return type;
@@ -81,8 +84,9 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ projectId }) => {
   // Get category icon
   const getCategoryIcon = (type: string) => {
     switch (type) {
+      case 'datasets': return '📊';
       case 'models': return '🤖';
-      case 'charts': return '📊';
+      case 'charts': return '📈';
       default: return '📁';
     }
   };

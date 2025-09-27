@@ -3,7 +3,7 @@ import { useCedarOS, type Agent } from '../contexts/CedarOSContext';
 import './AgentBrowser.css';
 
 const AgentBrowser: React.FC = () => {
-  const { addCanvasCard, addAgentProposal } = useCedarOS();
+  const { addCanvasCard, addAgentProposal, updateCanvasCard, updateAgentProposal, canvasCards, agentProposals } = useCedarOS();
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
 
   // Define the 6 agents
@@ -138,16 +138,28 @@ const AgentBrowser: React.FC = () => {
       if (currentStep < progressSteps.length) {
         const step = progressSteps[currentStep];
         
-        // Update canvas card progress
-        const cardId = `card_${agentId}`;
-        // Note: In a real implementation, you'd need to find the actual card ID
-        // For now, we'll just log the progress
+        // Update canvas card progress - find the most recent agent card
+        const agentCards = canvasCards.filter(card => card.type === 'agent' && card.agentId === agentId);
+        if (agentCards.length > 0) {
+          const latestCard = agentCards[agentCards.length - 1];
+          updateCanvasCard(latestCard.id, {
+            progress: step.progress,
+            logs: [...(latestCard.logs || []), step.log]
+          });
+        }
         
         console.log(`Agent ${agentId} progress: ${step.progress}% - ${step.log}`);
         currentStep++;
       } else {
         clearInterval(interval);
         setActiveAgent(null);
+        
+        // Mark the agent proposal as completed
+        const matchingProposals = agentProposals.filter(proposal => proposal.agentId === agentId);
+        if (matchingProposals.length > 0) {
+          const latestProposal = matchingProposals[matchingProposals.length - 1];
+          updateAgentProposal(latestProposal.id, 'accepted');
+        }
       }
     }, 2000);
   };

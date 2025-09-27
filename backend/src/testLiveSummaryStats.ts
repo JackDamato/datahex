@@ -1,4 +1,4 @@
-import { mcpClient } from './mcpClient';
+import { mcpClient } from './clients/mcpClient';
 import dotenv from 'dotenv';
 
 // Load environment variables

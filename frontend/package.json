@@ -11,8 +11,12 @@
   },
   "dependencies": {
     "cedar-os": "^0.1.21",
+    "plotly.js": "^3.1.0",
+    "plotly.js-dist-min": "^3.1.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-grid-layout": "^1.5.2",
+    "react-plotly.js": "^2.6.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

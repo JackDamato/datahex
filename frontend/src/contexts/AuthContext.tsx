@@ -30,8 +30,8 @@ interface AuthState {
 
 interface AuthContextType {
   state: AuthState;
-  login: (username: string, password: string) => Promise<boolean>;
-  signup: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, onSuccess?: () => void) => Promise<boolean>;
+  signup: (username: string, password: string, onSuccess?: () => void) => Promise<boolean>;
   logout: () => void;
   checkAuth: () => boolean;
 }
@@ -52,7 +52,7 @@ class ApiService {
   }
   
   async signup(username: string, password: string) {
-    const response = await fetch(`${this.baseUrl}/auth/signup`, {
+    const response = await fetch(`${this.baseUrl}/api/auth/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -69,7 +69,7 @@ class ApiService {
   }
   
   async login(username: string, password: string) {
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
+    const response = await fetch(`${this.baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -105,7 +105,7 @@ class ApiService {
       throw new Error('No authentication token');
     }
     
-    const response = await fetch(`${this.baseUrl}/auth/profile`, {
+    const response = await fetch(`${this.baseUrl}/api/profile`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
@@ -120,21 +120,32 @@ class ApiService {
   }
   
   async createProject(name: string) {
-    const response = await fetch(`${this.baseUrl}/projects/create`, {
+    console.log('AuthContext: Creating project with name:', name);
+    console.log('AuthContext: Using base URL:', this.baseUrl);
+    console.log('AuthContext: Auth headers:', this.getAuthHeaders());
+    
+    const response = await fetch(`${this.baseUrl}/api/projects/create`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ name })
     });
     
+    console.log('AuthContext: Response status:', response.status);
+    console.log('AuthContext: Response ok:', response.ok);
+    
     if (response.ok) {
-      return await response.json();
+      const data = await response.json();
+      console.log('AuthContext: Response data:', data);
+      return data;
     } else {
-      throw new Error('Failed to create project');
+      const error = await response.json();
+      console.error('AuthContext: Error response:', error);
+      throw new Error(error.error || 'Failed to create project');
     }
   }
   
   async getProjects() {
-    const response = await fetch(`${this.baseUrl}/projects`, {
+    const response = await fetch(`${this.baseUrl}/api/projects`, {
       method: 'GET',
       headers: this.getAuthHeaders()
     });
@@ -142,12 +153,13 @@ class ApiService {
     if (response.ok) {
       return await response.json();
     } else {
-      throw new Error('Failed to fetch projects');
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch projects');
     }
   }
   
   async deleteProject(projectId: string) {
-    const response = await fetch(`${this.baseUrl}/projects/${projectId}`, {
+    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders()
     });
@@ -165,7 +177,7 @@ class ApiService {
     formData.append('file', file);
     formData.append('projectId', projectId);
     
-    const response = await fetch(`${this.baseUrl}/uploadDataset`, {
+    const response = await fetch(`${this.baseUrl}/api/uploadDataset`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -215,7 +227,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     checkAuthStatus();
   }, []);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string, onSuccess?: () => void): Promise<boolean> => {
     try {
       setState(prev => ({ ...prev, loading: true }));
       
@@ -233,6 +245,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loading: false
       });
       
+      // Call success callback if provided
+      if (onSuccess) {
+        onSuccess();
+      }
+      
       return true;
     } catch (error) {
       console.error('Login error:', error);
@@ -241,7 +258,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signup = async (username: string, password: string): Promise<boolean> => {
+  const signup = async (username: string, password: string, onSuccess?: () => void): Promise<boolean> => {
     try {
       setState(prev => ({ ...prev, loading: true }));
       
@@ -258,6 +275,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         token: data.token,
         loading: false
       });
+      
+      // Call success callback if provided
+      if (onSuccess) {
+        onSuccess();
+      }
       
       return true;
     } catch (error) {

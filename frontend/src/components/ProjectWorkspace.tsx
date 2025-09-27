@@ -3,10 +3,15 @@ import { CedarOSProvider, useCedarOS } from '../contexts/CedarOSContext';
 import { apiService, type Project } from '../contexts/AuthContext';
 import ChatPanel from './ChatPanel';
 import AgentBrowser from './AgentBrowser';
-import Canvas from './Canvas';
+import ChartCanvas from './ChartCanvas';
 import Timeline from './Timeline';
 import LiveSummaryStats from './LiveSummaryStats';
 import FileBrowser from './FileBrowser';
+import ModelingResults from './ModelingResults';
+import IntegratedChat from './IntegratedChat';
+import DatasetVersionManager from './DatasetVersionManager';
+import DemoMode from './DemoMode';
+import DarkModeToggle from './DarkModeToggle';
 import '../App.css';
 
 interface ProjectWorkspaceProps {
@@ -40,6 +45,9 @@ const ProjectWorkspaceContent: React.FC<ProjectWorkspaceProps> = ({ projectId, o
     return saved ? parseInt(saved, 10) : 200;
   });
   const [isResizingTimeline, setIsResizingTimeline] = useState(false);
+  
+  // Center workspace tab state
+  const [activeTab, setActiveTab] = useState<'canvas' | 'modeling' | 'versions' | 'demo'>('canvas');
   
   const leftSidebarRef = useRef<HTMLDivElement>(null);
   const rightSidebarRef = useRef<HTMLDivElement>(null);
@@ -408,7 +416,44 @@ const ProjectWorkspaceContent: React.FC<ProjectWorkspaceProps> = ({ projectId, o
             </div>
           </div>
           
-          <Canvas projectId={projectId} />
+          {/* Center Workspace Tabs */}
+          <div className="center-workspace">
+            <div className="workspace-tabs">
+              <button 
+                className={`tab-button ${activeTab === 'canvas' ? 'active' : ''}`}
+                onClick={() => setActiveTab('canvas')}
+              >
+                📊 Canvas
+              </button>
+              <button 
+                className={`tab-button ${activeTab === 'modeling' ? 'active' : ''}`}
+                onClick={() => setActiveTab('modeling')}
+              >
+                🤖 Modeling
+              </button>
+              <button 
+                className={`tab-button ${activeTab === 'versions' ? 'active' : ''}`}
+                onClick={() => setActiveTab('versions')}
+              >
+                📊 Versions
+              </button>
+              <button 
+                className={`tab-button ${activeTab === 'demo' ? 'active' : ''}`}
+                onClick={() => setActiveTab('demo')}
+              >
+                🚀 Demo
+              </button>
+              <div className="tab-spacer"></div>
+              <DarkModeToggle className="header-dark-toggle" />
+            </div>
+            
+            <div className="workspace-content">
+              {activeTab === 'canvas' && <ChartCanvas />}
+              {activeTab === 'modeling' && <ModelingResults />}
+              {activeTab === 'versions' && <DatasetVersionManager />}
+              {activeTab === 'demo' && <DemoMode />}
+            </div>
+          </div>
           
           {/* Canvas Timeline Toggle Button (when closed) */}
           {!timelineOpen && (
@@ -485,6 +530,7 @@ const ProjectWorkspaceContent: React.FC<ProjectWorkspaceProps> = ({ projectId, o
                 ×
               </button>
               <LiveSummaryStats />
+              <IntegratedChat />
               <FileBrowser projectId={projectId} />
             </>
           )}

@@ -26,7 +26,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
     }
 
     try {
-      const success = await login(username, password);
+      const success = await login(username, password, () => {
+        // Automatically redirect to profile page on successful login
+        onNavigate('profile');
+      });
       if (!success) {
         setError('Login failed. Please check your credentials.');
       }

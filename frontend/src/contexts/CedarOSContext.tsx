@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { apiService } from './AuthContext';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import websocketService, { type WebSocketCallbacks } from '../services/websocketService';
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -50,6 +50,14 @@ export interface ColumnStats {
   dataType: string;
 }
 
+export interface CorrelationMatrix {
+  columns: string[];
+  matrix: number[][];
+  timestamp: string;
+  error?: string;
+  stats?: { [key: string]: { total: number, numeric: number, nonNumeric: number } };
+}
+
 export interface ChatMessage {
   id: string;
   text: string;
@@ -87,14 +95,25 @@ export interface CedarState {
   datasetTotalRows: number;
   canvasCards: CanvasCard[];
   fileTree: ProjectFile[];
-  selectedColumn: string | null;
+  selectedColumns: string[];
   summaryStats: ColumnStats | null;
+  correlationMatrix: CorrelationMatrix | null;
   chatMessages: ChatMessage[];
   agentProposals: AgentProposal[];
   
   // UI state
   isLoading: boolean;
   error: string | null;
+  
+  // WebSocket state
+  wsConnectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
+  streamingProgress: number;
+  streamingMessage: string;
+  isStreaming: boolean;
+  
+  // Visualization state
+  currentVisualization: any | null;
+  visualizationHistory: any[];
   
   // Actions
   setCurrentDataset: (dataset: Dataset | null) => void;
@@ -108,13 +127,30 @@ export interface CedarState {
   setFileTree: (files: ProjectFile[]) => void;
   addFile: (file: ProjectFile) => void;
   removeFile: (fileId: string) => void;
-  setSelectedColumn: (column: string | null) => void;
+  setSelectedColumns: (columns: string[]) => void;
+  addSelectedColumn: (column: string) => void;
+  removeSelectedColumn: (column: string) => void;
   setSummaryStats: (stats: ColumnStats | null) => void;
+  setCorrelationMatrix: (matrix: CorrelationMatrix | null) => void;
+  updateSummaryStats: (projectId: string, columns: string[]) => Promise<void>;
   addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   addAgentProposal: (proposal: Omit<AgentProposal, 'id' | 'timestamp'>) => void;
   updateAgentProposal: (id: string, status: 'accepted' | 'rejected') => void;
   clearError: () => void;
   loadDataset: (projectId: string) => Promise<void>;
+  
+  // WebSocket actions
+  connectWebSocket: (projectId: string) => Promise<void>;
+  disconnectWebSocket: () => void;
+  startCorrelationStreaming: (columns: string[]) => Promise<void>;
+  startVisualizationStreaming: (chartType: string, columns: string[], options?: any) => Promise<void>;
+  updateStreamingProgress: (progress: number, message: string) => void;
+  setStreamingComplete: (data: any) => void;
+  
+  // Visualization actions
+  setCurrentVisualization: (visualization: any) => void;
+  addVisualizationToHistory: (visualization: any) => void;
+  clearVisualizationHistory: () => void;
 }
 
 // ==================== CEDAROS CONTEXT ====================
@@ -145,6 +181,23 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
   const [datasetTotalRows, setDatasetTotalRows] = useState<number>(0);
   const [canvasCards, setCanvasCards] = useState<CanvasCard[]>([]);
   const [fileTree, setFileTree] = useState<ProjectFile[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [summaryStats, setSummaryStats] = useState<ColumnStats | null>(null);
+  const [correlationMatrix, setCorrelationMatrix] = useState<CorrelationMatrix | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [agentProposals, setAgentProposals] = useState<AgentProposal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // WebSocket state
+  const [wsConnectionStatus, setWsConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [streamingProgress, setStreamingProgress] = useState<number>(0);
+  const [streamingMessage, setStreamingMessage] = useState<string>('');
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  
+  // Visualization state
+  const [currentVisualization, setCurrentVisualization] = useState<any | null>(null);
+  const [visualizationHistory, setVisualizationHistory] = useState<any[]>([]);
   
   // Debug logging for fileTree changes
   useEffect(() => {
@@ -154,12 +207,13 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
       console.log('CedarOS: First file:', fileTree[0]);
     }
   }, [fileTree]);
-  const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
-  const [summaryStats, setSummaryStats] = useState<ColumnStats | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [agentProposals, setAgentProposals] = useState<AgentProposal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Auto-update summary stats when selected columns change
+  useEffect(() => {
+    if (projectId && selectedColumns.length > 0) {
+      updateSummaryStats(projectId, selectedColumns);
+    }
+  }, [selectedColumns, projectId]);
 
   // ==================== ACTIONS ====================
 
@@ -193,6 +247,74 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
 
   const removeFile = (fileId: string) => {
     setFileTree(prev => prev.filter(file => file.id !== fileId));
+  };
+
+  const addSelectedColumn = (column: string) => {
+    setSelectedColumns(prev => {
+      if (!prev.includes(column)) {
+        return [...prev, column];
+      }
+      return prev;
+    });
+  };
+
+  const removeSelectedColumn = (column: string) => {
+    setSelectedColumns(prev => prev.filter(col => col !== column));
+  };
+
+  const updateSummaryStats = async (projectId: string, columns: string[]) => {
+    if (columns.length === 0) {
+      setSummaryStats(null);
+      setCorrelationMatrix(null);
+      return;
+    }
+
+    try {
+      // For single column, get detailed stats
+      if (columns.length === 1) {
+        const response = await fetch(`http://localhost:3001/api/projects/${projectId}/summary-stats/${columns[0]}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const stats = await response.json();
+          setSummaryStats(stats);
+        }
+      }
+
+      // For multiple columns, get correlation matrix
+      if (columns.length > 1) {
+        console.log(`📊 Requesting correlation matrix for columns: ${columns.join(', ')}`);
+        const response = await fetch(`http://localhost:3001/api/projects/${projectId}/correlation-matrix`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ columns })
+        });
+
+        if (response.ok) {
+          const matrix = await response.json();
+          console.log(`📊 Correlation matrix received:`, matrix);
+          setCorrelationMatrix(matrix);
+        } else {
+          const error = await response.json();
+          console.error(`❌ Correlation matrix error:`, error);
+          setCorrelationMatrix({
+            columns: [],
+            matrix: [],
+            timestamp: new Date().toISOString(),
+            error: error.error || 'Failed to calculate correlation matrix'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating summary stats:', error);
+    }
   };
 
   const addChatMessage = (message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
@@ -321,6 +443,14 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
 
       const datasetData = await response.json();
       
+      console.log('CedarOS: Dataset data received:', {
+        id: datasetData.id,
+        name: datasetData.name,
+        headers: datasetData.headers,
+        rowsLength: datasetData.rows.length,
+        totalRows: datasetData.totalRows
+      });
+      
       // Update dataset state
       const dataset: Dataset = {
         id: datasetData.id,
@@ -332,6 +462,12 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
         data: datasetData.rows,
         createdAt: new Date().toISOString(),
       };
+      
+      console.log('CedarOS: Setting dataset state:', {
+        currentDataset: dataset.name,
+        datasetRowsLength: datasetData.rows.length,
+        datasetHeaders: datasetData.headers
+      });
       
       setCurrentDataset(dataset);
       setDatasetRows(datasetData.rows);
@@ -387,6 +523,238 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
     setAgentProposals(dummyProposals);
   };
 
+  // ==================== WEBSOCKET METHODS ====================
+
+  const connectWebSocket = async (projectId: string): Promise<void> => {
+    try {
+      setWsConnectionStatus('connecting');
+      console.log('🔗 Connecting WebSocket for project:', projectId);
+      
+      const callbacks: WebSocketCallbacks = {
+        onStatus: (message: string, progress: number) => {
+          console.log('📊 WebSocket status:', message, progress);
+          setStreamingMessage(message);
+          setStreamingProgress(progress);
+        },
+        
+        onProgress: (message: string, progress: number, data: any) => {
+          console.log('📈 WebSocket progress:', message, progress, data);
+          setStreamingMessage(message);
+          setStreamingProgress(progress);
+          
+          // Update correlation matrix if provided
+          if (data?.correlationMatrices) {
+            setCorrelationMatrix({
+              columns: data.correlationMatrices.pearson ? Object.keys(data.correlationMatrices.pearson) : [],
+              matrix: data.correlationMatrices.pearson ? 
+                Object.values(data.correlationMatrices.pearson).map((row: any) => 
+                  Object.values(row)
+                ) : [],
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          // Update summary stats if provided
+          if (data?.datasetInfo) {
+            console.log('📊 Updating dataset info from WebSocket:', data.datasetInfo);
+          }
+        },
+        
+        onComplete: (data: any) => {
+          console.log('✅ WebSocket analysis complete:', data);
+          setStreamingMessage('Analysis completed!');
+          setStreamingProgress(100);
+          setIsStreaming(false);
+          
+          // Update final results
+          if (data) {
+            if (data.correlationMatrices) {
+              setCorrelationMatrix({
+                columns: data.correlationMatrices.pearson ? Object.keys(data.correlationMatrices.pearson) : [],
+                matrix: data.correlationMatrices.pearson ? 
+                  Object.values(data.correlationMatrices.pearson).map((row: any) => 
+                    Object.values(row)
+                  ) : [],
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        },
+        
+        onError: (error: string) => {
+          console.error('❌ WebSocket error:', error);
+          setError(`WebSocket error: ${error}`);
+          setWsConnectionStatus('error');
+          setIsStreaming(false);
+        },
+        
+        onCorrelationComplete: (data: any) => {
+          console.log('🔗 Correlation analysis complete via WebSocket:', data);
+          setStreamingMessage('Correlation analysis completed!');
+          setStreamingProgress(100);
+          setIsStreaming(false);
+          
+          // Update correlation matrix with final results
+          if (data?.correlation_matrices?.pearson) {
+            const pearson = data.correlation_matrices.pearson;
+            const columns = Object.keys(pearson);
+            const matrix = columns.map(col => 
+              columns.map(otherCol => pearson[col][otherCol])
+            );
+            
+            setCorrelationMatrix({
+              columns,
+              matrix,
+              timestamp: new Date().toISOString()
+            });
+          }
+        },
+        
+        onVisualizationComplete: (data: any) => {
+          console.log('📊 Visualization complete via WebSocket:', data);
+          setStreamingMessage('Visualization completed!');
+          setStreamingProgress(100);
+          setIsStreaming(false);
+          
+          // Update current visualization
+          setCurrentVisualization(data);
+          addVisualizationToHistory(data);
+        }
+      };
+      
+      await websocketService.connect(projectId, callbacks);
+      setWsConnectionStatus('connected');
+      console.log('✅ WebSocket connected successfully');
+      
+    } catch (error) {
+      console.error('❌ Failed to connect WebSocket:', error);
+      setWsConnectionStatus('error');
+      setError('Failed to connect to real-time updates');
+    }
+  };
+
+  const disconnectWebSocket = (): void => {
+    console.log('🔌 Disconnecting WebSocket');
+    websocketService.disconnect();
+    setWsConnectionStatus('disconnected');
+    setIsStreaming(false);
+    setStreamingProgress(0);
+    setStreamingMessage('');
+  };
+
+  const startCorrelationStreaming = async (columns: string[]): Promise<void> => {
+    if (!projectId) {
+      setError('No project ID available for streaming');
+      return;
+    }
+
+    try {
+      setIsStreaming(true);
+      setStreamingProgress(0);
+      setStreamingMessage('Starting correlation analysis...');
+      
+      console.log('🌊 Starting correlation streaming for columns:', columns);
+      
+      const response = await fetch(`http://localhost:3001/api/projects/${projectId}/correlation/stream`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ columns })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to start correlation streaming: ${response.statusText}`);
+      }
+
+      // The streaming will be handled by WebSocket callbacks
+      console.log('✅ Correlation streaming started');
+      
+    } catch (error) {
+      console.error('❌ Failed to start correlation streaming:', error);
+      setError('Failed to start correlation analysis');
+      setIsStreaming(false);
+    }
+  };
+
+  const startVisualizationStreaming = async (chartType: string, columns: string[], options?: any): Promise<void> => {
+    if (!projectId) {
+      setError('No project ID available for streaming');
+      return;
+    }
+
+    try {
+      setIsStreaming(true);
+      setStreamingProgress(0);
+      setStreamingMessage('Starting visualization generation...');
+      
+      console.log('📊 Starting visualization streaming for chart type:', chartType, 'columns:', columns);
+      
+      const response = await fetch(`http://localhost:3001/api/projects/${projectId}/visualization/stream`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ chartType, columns, options })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to start visualization streaming: ${response.statusText}`);
+      }
+
+      // The streaming will be handled by WebSocket callbacks
+      console.log('✅ Visualization streaming started');
+      
+    } catch (error) {
+      console.error('❌ Failed to start visualization streaming:', error);
+      setError('Failed to start visualization generation');
+      setIsStreaming(false);
+    }
+  };
+
+  const updateStreamingProgress = (progress: number, message: string): void => {
+    setStreamingProgress(progress);
+    setStreamingMessage(message);
+  };
+
+  const setStreamingComplete = (data: any): void => {
+    setIsStreaming(false);
+    setStreamingProgress(100);
+    setStreamingMessage('Analysis completed!');
+    
+    // Update final state with complete data
+    if (data) {
+      console.log('📊 Setting streaming complete with data:', data);
+    }
+  };
+
+  // Visualization methods
+  const addVisualizationToHistory = (visualization: any): void => {
+    setVisualizationHistory(prev => [...prev, {
+      ...visualization,
+      id: `viz_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date().toISOString()
+    }]);
+  };
+
+  const clearVisualizationHistory = (): void => {
+    setVisualizationHistory([]);
+  };
+
+  // Auto-connect WebSocket when project changes
+  useEffect(() => {
+    if (projectId) {
+      connectWebSocket(projectId);
+      
+      // Cleanup on unmount or project change
+      return () => {
+        disconnectWebSocket();
+      };
+    }
+  }, [projectId]);
+
   // ==================== CONTEXT VALUE ====================
 
   const value: CedarState = {
@@ -398,14 +766,25 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
     datasetTotalRows,
     canvasCards,
     fileTree,
-    selectedColumn,
+    selectedColumns,
     summaryStats,
+    correlationMatrix,
     chatMessages,
     agentProposals,
     
     // UI state
     isLoading,
     error,
+    
+    // WebSocket state
+    wsConnectionStatus,
+    streamingProgress,
+    streamingMessage,
+    isStreaming,
+    
+    // Visualization state
+    currentVisualization,
+    visualizationHistory,
     
     // Actions
     setCurrentDataset,
@@ -419,13 +798,30 @@ export const CedarOSProvider: React.FC<CedarOSProviderProps> = ({ children, proj
     setFileTree,
     addFile,
     removeFile,
-    setSelectedColumn,
+    setSelectedColumns,
+    addSelectedColumn,
+    removeSelectedColumn,
     setSummaryStats,
+    setCorrelationMatrix,
+    updateSummaryStats,
     addChatMessage,
     addAgentProposal,
     updateAgentProposal,
     clearError,
     loadDataset,
+    
+    // WebSocket actions
+    connectWebSocket,
+    disconnectWebSocket,
+    startCorrelationStreaming,
+    startVisualizationStreaming,
+    updateStreamingProgress,
+    setStreamingComplete,
+    
+    // Visualization actions
+    setCurrentVisualization,
+    addVisualizationToHistory,
+    clearVisualizationHistory,
   };
 
   return (

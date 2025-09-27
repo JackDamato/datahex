@@ -46,7 +46,10 @@ const SignupPage: React.FC<SignupPageProps> = ({ onNavigate }) => {
     }
 
     try {
-      const success = await signup(username, password);
+      const success = await signup(username, password, () => {
+        // Automatically redirect to profile page on successful signup
+        onNavigate('profile');
+      });
       if (!success) {
         setError('Signup failed. Username may already exist.');
       }

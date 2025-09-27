@@ -52,12 +52,20 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onProjectClick }) => {
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProjectName.trim()) return;
+    console.log('Create project form submitted, project name:', newProjectName);
+    
+    if (!newProjectName.trim()) {
+      console.log('Project name is empty, returning');
+      return;
+    }
 
     try {
       setCreatingProject(true);
+      setError(''); // Clear any previous errors
+      console.log('Calling apiService.createProject with:', newProjectName.trim());
+      
       const newProject = await apiService.createProject(newProjectName.trim());
-      console.log('Created project:', newProject); // Debug log
+      console.log('Created project response:', newProject);
       
       // Ensure the project has a datasets array
       const projectWithDatasets = {
@@ -65,12 +73,14 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ onProjectClick }) => {
         datasets: newProject.datasets || []
       };
       
+      console.log('Adding project to state:', projectWithDatasets);
       setProjects(prev => [projectWithDatasets, ...prev]);
       setNewProjectName('');
       setShowCreateProject(false);
+      console.log('Project created successfully');
     } catch (err) {
       console.error('Error creating project:', err);
-      setError('Failed to create project. Please try again.');
+      setError(`Failed to create project: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setCreatingProject(false);
     }

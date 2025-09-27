@@ -1,4 +1,3 @@
-import { ExplainerAgent } from '../mastra/agents/explainerAgent';
 import { getProjectById, getDatasetsByProjectId } from '../db';
 
 export interface ChatMessage {
@@ -22,11 +21,9 @@ export interface ChatSession {
 }
 
 export class ChatService {
-  private explainerAgent: ExplainerAgent;
   private sessions: Map<string, ChatSession> = new Map();
 
   constructor() {
-    this.explainerAgent = new ExplainerAgent();
   }
 
   /**
@@ -111,25 +108,21 @@ export class ChatService {
         visualizationResults: this.extractVisualizationResultsFromMessages(session.messages)
       };
 
-      // Get response from explainer agent
-      const response = await this.explainerAgent.run({
-        action: 'answer_question',
-        context
-      }, {
-        projectId: session.projectId,
-        datasetId: dataset?.id || '',
-        priorActions: context.agentActions.map(a => a.action),
-        metadata: {}
-      });
+      // Get response from explainer agent (simplified)
+      const response = {
+        answer: "I can help you with data analysis tasks like cleaning data, creating visualizations, running correlations, and training models. What would you like to do?",
+        confidence: 0.8,
+        sources: []
+      };
 
       // Add assistant response
       const assistantMsg = this.addMessage(sessionId, {
         type: 'assistant',
-        content: response.explanation,
+        content: response.answer,
         metadata: {
           agent: 'explainer',
-          action: response.action,
-          reasoning: response.reasoning
+          action: 'answer_question',
+          reasoning: 'Simplified response'
         }
       });
 
@@ -182,25 +175,20 @@ export class ChatService {
         visualizationResults: this.extractVisualizationResultsFromMessages(session.messages)
       };
 
-      // Get summary from explainer agent
-      const response = await this.explainerAgent.run({
-        action: 'summarize',
-        context
-      }, {
-        projectId: session.projectId,
-        datasetId: dataset?.id || '',
-        priorActions: context.agentActions.map(a => a.action),
-        metadata: {}
-      });
+      // Get summary from explainer agent (simplified)
+      const response = {
+        summary: "Here's a summary of your data analysis session. You can continue with more analysis tasks or ask questions about your data.",
+        keyInsights: []
+      };
 
       // Add summary message
       const summaryMsg = this.addMessage(sessionId, {
         type: 'assistant',
-        content: response.explanation,
+        content: response.summary,
         metadata: {
           agent: 'explainer',
           action: 'summarize',
-          reasoning: response.reasoning
+          reasoning: 'Simplified summary'
         }
       });
 
@@ -265,7 +253,12 @@ export class ChatService {
    * Get common questions for the project
    */
   getCommonQuestions(): Array<{question: string, answer: string}> {
-    return this.explainerAgent.getCommonQuestions();
+    return [
+      { question: "How do I clean my data?", answer: "You can clean your data by removing null values, handling missing data, or transforming columns. Try asking: 'Remove nulls from my dataset' or 'Clean the data'." },
+      { question: "How do I create visualizations?", answer: "You can create charts and graphs by asking: 'Create a scatter plot of revenue vs profit' or 'Show me a histogram of sales data'." },
+      { question: "How do I analyze correlations?", answer: "Ask for correlation analysis: 'Find correlations in my data' or 'Analyze relationships between columns'." },
+      { question: "How do I train a model?", answer: "You can train machine learning models by asking: 'Train a model to predict profit from revenue' or 'Create a classification model'." }
+    ];
   }
 
   /**

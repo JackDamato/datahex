@@ -36,11 +36,21 @@ const Canvas: React.FC<CanvasProps> = ({ projectId: _projectId }) => {
 
   // Auto-create dataset card when currentDataset changes
   useEffect(() => {
+    console.log('Canvas: Auto-create dataset card check:', {
+      currentDataset: !!currentDataset,
+      datasetRowsLength: datasetRows.length,
+      currentDatasetName: currentDataset?.name,
+      canvasCardsLength: canvasCards.length
+    });
+    
     if (currentDataset && datasetRows.length > 0) {
       // Check if there's already a dataset card
       const hasDatasetCard = canvasCards.some(card => card.type === 'dataset');
       
+      console.log('Canvas: Has dataset card?', hasDatasetCard);
+      
       if (!hasDatasetCard) {
+        console.log('Canvas: Creating dataset card for:', currentDataset.name);
         addCanvasCard({
           type: 'dataset',
           title: currentDataset.name,
