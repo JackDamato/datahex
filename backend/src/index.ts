@@ -18,6 +18,7 @@ import {
 } from './db';
 import { authMiddleware, optionalAuthMiddleware } from './authMiddleware';
 import { signupUser, loginUser, AuthUser } from './authServiceSimple';
+import { mcpClient } from './mcpClient';
 
 // Stub implementation of Mastra's registerApiRoute
 function registerApiRoute(app: express.Application, path: string, config: { method: string; handler: (req: Request, res: Response) => void }) {
@@ -447,6 +448,93 @@ registerApiRoute(app, '/chat/stream', {
 
 // ==================== ERROR HANDLING ====================
 
+// ==================== MCP SANDBOX INTEGRATION ====================
+
+// Test sandbox connection
+app.get('/mcp/health', async (req, res) => {
+  try {
+    const health = await mcpClient.healthCheck();
+    res.json({
+      status: 'ok',
+      sandbox: health,
+      message: 'Mastra backend connected to Python sandbox'
+    });
+  } catch (error: any) {
+    res.status(503).json({
+      status: 'error',
+      error: 'Sandbox connection failed',
+      details: error.message
+    });
+  }
+});
+
+// Get available sandbox tools
+app.get('/mcp/tools', async (req, res) => {
+  try {
+    const tools = await mcpClient.getTools();
+    res.json({ tools });
+  } catch (error: any) {
+    res.status(500).json({
+      error: 'Failed to get sandbox tools',
+      details: error.message
+    });
+  }
+});
+
+// Clean dataset (drop nulls)
+app.post('/mcp/clean/drop_nulls', authMiddleware, async (req: any, res) => {
+  try {
+    const { dataset_id, columns } = req.body;
+    
+    if (!dataset_id) {
+      return res.status(400).json({
+        error: 'dataset_id is required',
+        code: 'MISSING_DATASET_ID'
+      });
+    }
+
+    const result = await mcpClient.dropNulls({ dataset_id, columns });
+    
+    // Log the operation for audit
+    console.log(`User ${req.user.userId} cleaned dataset ${dataset_id}, result: ${result.newDatasetId}`);
+    
+    res.json(result);
+  } catch (error: any) {
+    console.error('Drop nulls error:', error);
+    res.status(500).json({
+      error: 'Failed to clean dataset',
+      details: error.message
+    });
+  }
+});
+
+// Execute Python code
+app.post('/mcp/execute_python', authMiddleware, async (req: any, res) => {
+  try {
+    const { code } = req.body;
+    
+    if (!code) {
+      return res.status(400).json({
+        error: 'code is required',
+        code: 'MISSING_CODE'
+      });
+    }
+
+    const result = await mcpClient.executePython({ code });
+    
+    // Log the operation for audit
+    console.log(`User ${req.user.userId} executed Python code, return code: ${result.returncode}`);
+    
+    res.json(result);
+  } catch (error: any) {
+    console.error('Python execution error:', error);
+    res.status(500).json({
+      error: 'Failed to execute Python code',
+      details: error.message
+    });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ 
@@ -478,4 +566,8 @@ app.listen(PORT, () => {
   console.log(`📊 Get datasets: http://localhost:${PORT}/datasets`);
   console.log(`💬 Chat API: http://localhost:${PORT}/chat`);
   console.log(`🌊 Stream API: http://localhost:${PORT}/chat/stream`);
+  console.log(`🔧 MCP Health: http://localhost:${PORT}/mcp/health`);
+  console.log(`🛠️ MCP Tools: http://localhost:${PORT}/mcp/tools`);
+  console.log(`🧹 MCP Clean: http://localhost:${PORT}/mcp/clean/drop_nulls`);
+  console.log(`🐍 MCP Python: http://localhost:${PORT}/mcp/execute_python`);
 });
